@@ -7,7 +7,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join, extname, normalize } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { ROOT, userForToken, destroySession, allSettings, listBranches, getBranch, branchWhere, branchCond, branchVal, takeFlash, setFlash } from './src/db.js';
+import { ROOT, APP_BUILD, userForToken, destroySession, allSettings, listBranches, getBranch, branchWhere, branchCond, branchVal, takeFlash, setFlash } from './src/db.js';
 import { parseCookies, parseBody, html, json, text, redirect, setCookie } from './src/lib/http.js';
 import { t } from './src/lib/html.js';
 
@@ -99,6 +99,10 @@ async function serveStatic(req, res, pathname) {
 
 /* ---------------- request handler ---------------- */
 const server = createServer(async (req, res) => {
+  // Nyatakan commit mana yang menjawab permintaan ini. Header ini
+  // ditetapkan sebelum apa-apa penulisan supaya ia sampai pada
+  // modul terbina dalam pun memuatkannya, bukan sahaja halaman dinamik.
+  res.setHeader('X-App-Build', APP_BUILD);
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
   const cookies = parseCookies(req);

@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # lftp TIDAK termasuk dalam imej ubuntu-latest - Tanpanya langkah
+      # lftp TIDAK termasuk dalam imej ubuntu-latest - tanpanya langkah
       # muat naik akan gagal dengan "lftp: command not found".
       - name: Install lftp
         run: |
@@ -36,6 +36,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq lftp
           lftp --version | head -1
+
+      # build.json dicapa dengan commit ini, kemudian dimuat naik
+      # bersama kod.inicap inilah yang membolehkan langkah pengesahan
+      # memberitahu commit mana yang SEBENARNYA sedang berjalan.
+      - name: Stamp the build
+        run: |
+          set -eu
+          printf '{"sha":"%s"}\n' '${{ github.sha }}' > build.json
+          cat build.json
 
       - name: Check required secrets are present
         env:
@@ -85,21 +94,66 @@ jobs:
             printf 'mirror --reverse --delete --verbose scripts/ "%s/scripts/"\n' "$DEPLOY_PATH"
             printf 'put server.js -o "%s/server.js"\n' "$DEPLOY_PATH"
             printf 'put package.json -o "%s/package.json"\n' "$DEPLOY_PATH"
+            printf 'put build.json -o "%s/build.json"\n' "$DEPLOY_PATH"
             echo "bye;"
           } > "$lftp_cmd"
 
           lftp -f "$lftp_cmd"
           rm -f "$lftp_cmd"
 
-      - name: Verify the running app
+      # Semak CAP BUILD yang sedang berjalan, bukan sekadar status HTTP.
+      #
+      # HTTP 200 tidak bermakna deploy sudah berkesan. Node membaca modul
+      # sekali sahaja semasa permulaan, jadi selepas muat naik proses
+      # masih memegang kod lama dan membalas 200 seperti biasa. Satu-
+      # saturation cara membezakannya ialah membaca header X-App-Build.
+      #
+      # Jangkaan: selepas muat naik pertama, proses belum dimulakan
+      # semula, jadi build lama akan dipaparkan. Itu KEGAGALAN dengan
+      # mesej ralat yang jelas dan arahkan pentadbir ke hPanel - bukan
+      # lolos secara senyap.
+      - name: Verify the running build
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
-          set -eu
-          # Awangi ini hanya menyemak aplikasi HTTP - ia tidak
-          # memerlukan sebarang rahsia dan tidak menyentuh pangkalan data.
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://test.prostudio.my/login)
-          echo "https://test.prostudio.my/login -> HTTP $code"
-          if [ "$code" != "200" ]; then
-            echo "::warning::Halaman login tidak kembali 200 selepas muat naik."
-            echo "::warning::Jika proses Node tidak dimulakan semula, mulakan semula"
-            echo "::warning::melalui hPanel (Advanced -> Node.js)."
+          set -u
+          url="https://test.prostudio.my/login"
+          hdr=$(curl -s -D - -o /dev/null --max-time 25 "$url" 2>/dev/null || true)
+          code=$(printf '%s' "$hdr" | awk 'NR==1{print $2}')
+          running=$(printf '%s' "$hdr" | tr -d '\r' \
+            | awk 'tolower($1)=="x-app-build:"{print $2}')
+
+          echo "URL:      $url"
+          echo "HTTP:     ${code:-tiada jawapan}"
+          echo "Dijangka: ${EXPECTED_SHA:0:7}"
+          echo "Berjalan: ${running:-tiada header}"
+
+          if [ "${code:-}" != "200" ]; then
+            echo "::error::Halaman login tidak kembali 200 (dapat ${code:-tiada})."
+            echo "::error::Aplikasi mungkin rosak atau tidak berjalan."
+            exit 1
           fi
+
+          case "$running" in
+            "$EXPECTED_SHA" | "${EXPECTED_SHA:0:7}")
+              echo "::notice::Commit ini yang sedang berjalan - deploy berkesan."
+              ;;
+            dev)
+              echo "::error::Aplikasi melaporkan build 'dev'."
+              echo "::error::build.json belum dibaca - periksa ia berada di root aplikasi."
+              exit 1
+              ;;
+            "")
+              echo "::error::Header X-App-Build tiada - ini kod lama yang belum"
+              echo "::error::dimulakan semula, jadi ia belum tahu cara melapor diri."
+              echo "::error::Mulakan semula aplikasi melalui hPanel (Advanced -> Node.js)."
+              exit 1
+              ;;
+            *)
+              echo "::error::Proses masih menjalankan build ${running:0:7}, bukan ${EXPECTED_SHA:0:7}."
+              echo "::error::Fail sudah ada di pelayan, tetapi proses masih memegang"
+              echo "::error::kod lama kerana Node hanya membaca modul semasa permulaan."
+              echo "::error::Mulakan semula aplikasi melalui hPanel (Advanced -> Node.js)."
+              exit 1
+              ;;
+          esac

@@ -2,7 +2,7 @@
  * Database layer - uses Node.js built-in node:sqlite (no external packages).
  */
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scryptSync, timingSafeEqual, randomBytes } from 'node:crypto';
@@ -18,6 +18,34 @@ mkdirSync(DATA_DIR, { recursive: true });
 export const db = new DatabaseSync(join(DATA_DIR, 'clsbiz.db'));
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
+
+/* ------------------------------------------------------------------ *
+ * Cap build
+ *
+ * Memberitahu commit mana yang sedang berjalan. Ini penting kerana
+ * Node membaca modul sekali sahaja semasa permulaan: selepas fail
+ * dimuat naik melalui FTP, proses masih memegang kod lama sehingga ia
+ * dimulakan semula. Tanpa cap ini mustahil membezaskan "deploy sudah
+ * sampai" daripada "proses basi masih hidup" - kedua-duanya balas
+ * HTTP 200 dengan halaman yang kelihatan normal.
+ *
+ * Workflow deploy menulis build.json semasa muat naik. Fail itu tidak
+ * disimpan dalam git, jadi setiap pemasangan membina capnya sendiri
+ * dan nilai 'dev' digunakan semasa pembangunan tempatan.
+ * ------------------------------------------------------------------ */
+function readBuildStamp() {
+  try {
+    const raw = readFileSync(join(ROOT, 'build.json'), 'utf8');
+    const sha = String(JSON.parse(raw).sha || '').trim();
+    // Hanya terima bentuk hash git supaya fail rosak tidak menyebabkan
+    // nilai palsu yang disalahbaca sebagai versi yang lain.
+    if (/^[0-9a-f]{7,40}$/i.test(sha)) return sha;
+  } catch {
+    // Tiada build.json - ini pemasangan biasa, ini bukan ralat.
+  }
+  return 'dev';
+}
+export const APP_BUILD = readBuildStamp();
 
 /* ------------------------------------------------------------------ *
  * Schema

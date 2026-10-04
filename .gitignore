@@ -16,3 +16,8 @@ npm-debug.log*
 .env.*
 *.local
 config.local.*
+
+# Cap build - ditulis oleh workflow deploy sahaja. Ia juga mustahil
+# menjadi kebenaran tentang commit yang sedang berjalan, jadi ia
+# tidak sekali-kali boleh disimpan dalam git.
+build.json
