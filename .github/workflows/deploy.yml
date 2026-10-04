@@ -75,10 +75,10 @@ jobs:
             echo "set ftp:ssl-allow no;"
             echo "set net:max-retries 3;"
             echo "set net:timeout 15;"
-            # Port mesti ditetapkan sebelum 'open' - lftp tidak menerima
-            # port sebagai argumen pada arahan open.
-            printf 'set ftp:port %s;\n' "${FTP_PORT:-21}"
-            printf 'open -u "%s","%s" "%s"\n' "$FTP_USER" "$FTP_PASS" "$FTP_HOST"
+            # Port diberi sebagai argumen terakhir pada 'open'.
+            # 'set ftp:port' TIDAK boleh digunakan - lftp menandakannya
+            # sebagai "ambiguous variable name" dan berhenti.
+            printf 'open -u "%s","%s" "%s" %s\n' "$FTP_USER" "$FTP_PASS" "$FTP_HOST" "${FTP_PORT:-21}"
             # Hanya direktori kod. data/ sengaja tidak disebut di sini.
             printf 'mirror --reverse --delete --verbose src/ "%s/src/"\n' "$DEPLOY_PATH"
             printf 'mirror --reverse --delete --verbose public/ "%s/public/"\n' "$DEPLOY_PATH"
