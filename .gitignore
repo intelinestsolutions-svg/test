@@ -1,0 +1,18 @@
+# Pangkalan data - jangan sekali-kali commit.
+# Setiap pemasangan membina datanya sendiri (lihat README).
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+node_modules/
+npm-debug.log*
+.DS_Store
+
+# Rahsia / konfigurasi setempat
+.env
+.env.*
+*.local
+config.local.*

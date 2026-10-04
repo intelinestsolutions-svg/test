@@ -1,0 +1,20 @@
+{
+  "name": "kotamix-concrete",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Concrete lorry operations system for Sabah - orders, deliveries, payments, staff, fleet, fuel and inventory",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node src/seed.js",
+    "reseed": "node src/reset.js --reseed --yes",
+    "reset": "node src/reset.js",
+    "backup": "node src/backup.js",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}
