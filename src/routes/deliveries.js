@@ -34,6 +34,9 @@ export const deliveryRoutes = [
       }
       const bc = ctx.bcond('t');
       if (bc) { where.push(bc.clause); args.push(...bc.params); }
+      // Pemandu hanya nampak trip-nya sendiri, walaupun dalam cawangan yang sama.
+      const mt = ctx.myTripCond('t');
+      if (mt) { where.push(mt.clause); args.push(...mt.params); }
       const clause = 'WHERE ' + where.join(' AND ');
       const rows = all(`
         SELECT t.*, o.order_no, o.delivery_date, o.delivery_slot, o.mix_code, o.volume_m3, o.status AS order_status,
@@ -121,6 +124,18 @@ export const deliveryRoutes = [
   /* ============ TRIP DETAIL ============ */
   {
     method: 'GET', path: '/deliveries/:id', handler(ctx) {
+      const t = get('SELECT * FROM trips WHERE id = ?', int(ctx.params.id));
+      if (!t) return html(ctx.res, page(ctx, { title: '404', body: card('404') }), 404);
+      // Trip dalam cawangan lain: papar 404, bukan butiran.
+      const db = ctx.bcond('t');
+      if (db && !get(`SELECT id FROM trips t WHERE t.id = ? AND ${db.clause}`, t.id, ...db.params)) {
+        return html(ctx.res, page(ctx, { title: '404', body: card('404') }), 404);
+      }
+      // Pemandu hanya boleh buka trip sendiri.
+      if (ctx.isDriver && !ctx.isMyTrip(t)) {
+        ctx.flashMsg(ctx.t('err.noAccess'), 'err');
+        return { __redirect: '/deliveries' };
+      }
       return html(ctx.res, tripDetail(ctx, int(ctx.params.id)));
     },
   },
@@ -131,6 +146,18 @@ export const deliveryRoutes = [
       const id = int(ctx.params.id);
       const t = get('SELECT * FROM trips WHERE id = ?', id);
       if (!t) { ctx.flashMsg('404', 'err'); return { __redirect: '/deliveries' }; }
+      // Trip bukan dalam cawangan pengguna -> jangan bocorkan'existence.
+      const db = ctx.bcond('t');
+      if (db && !get(`SELECT id FROM trips t WHERE t.id = ? AND ${db.clause}`, id, ...db.params)) {
+        ctx.flashMsg('404', 'err');
+        return { __redirect: '/deliveries' };
+      }
+      // Pemandu hanya boleh mengemas kini trip MILIKNYA. Tanpa semakan ini
+      // mana-mana pemandu boleh memuat turun trip pemandu lain.
+      if (ctx.isDriver && !ctx.isMyTrip(t)) {
+        ctx.flashMsg(ctx.t('err.noAccess'), 'err');
+        return { __redirect: '/deliveries' };
+      }
       const action = str(ctx.body.action);
       const back = str(ctx.body.back) || `/deliveries/${id}`;
       const now = new Date().toISOString();
@@ -261,6 +288,17 @@ export const deliveryRoutes = [
       const id = int(ctx.params.id);
       const t = get('SELECT * FROM trips WHERE id = ?', id);
       if (!t) return { __redirect: '/deliveries' };
+      const db = ctx.bcond('t');
+      if (db && !get(`SELECT id FROM trips t WHERE t.id = ? AND ${db.clause}`, id, ...db.params)) {
+        ctx.flashMsg('404', 'err');
+        return { __redirect: '/deliveries' };
+      }
+      // Menukar lori/pemandu ialah kerja pejabat - pemandu tidak boleh
+      // memindahkan tripnya sendiri ke lori orang lain.
+      if (ctx.isDriver) {
+        ctx.flashMsg(ctx.t('err.noAccess'), 'err');
+        return { __redirect: `/deliveries/${id}` };
+      }
       run(`UPDATE trips SET lorry_id=?, driver_id=?, batch_m3=?, remark=?, updated_at=? WHERE id=?`,
         int(ctx.body.lorry_id) || null, int(ctx.body.driver_id) || null, num(ctx.body.batch_m3), str(ctx.body.remark),
         new Date().toISOString(), id);

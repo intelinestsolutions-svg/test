@@ -9,7 +9,7 @@ import { materialCostForMix, round2, mixByCode, dashboardKpis, allowanceRates } 
 export const reportRoutes = [
   /* ============ SALES ============ */
   {
-    method: 'GET', path: '/reports', handler(ctx) {
+    method: 'GET', path: '/reports', role: ['admin'], handler(ctx) {
       const { lang } = ctx;
       const T = (k) => esc(ctx.t(k));
       const from = ctx.query.from || monthStart();
@@ -50,7 +50,7 @@ export const reportRoutes = [
 
   /* ============ CSV exports ============ */
   ...['sales', 'profit', 'stock', 'fleet', 'people'].map((tab) => ({
-    method: 'GET', path: `/reports/${tab}.csv`,
+    method: 'GET', path: `/reports/${tab}.csv`, role: ['admin'],
     handler(ctx) {
       const from = ctx.query.from || monthStart();
       const to = ctx.query.to || today();

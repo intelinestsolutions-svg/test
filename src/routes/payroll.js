@@ -8,7 +8,7 @@ import { payrollForMonth, allowanceRates, round2 } from '../lib/biz.js';
 
 export const payrollRoutes = [
   {
-    method: 'GET', path: '/payroll', handler(ctx) {
+    method: 'GET', path: '/payroll', role: ['admin'], handler(ctx) {
       const { lang } = ctx;
       const T = (k) => esc(ctx.t(k));
       const month = ctx.query.month || today().slice(0, 7);
@@ -58,7 +58,7 @@ export const payrollRoutes = [
     },
   },
   {
-    method: 'GET', path: '/payroll/export.csv', handler(ctx) {
+    method: 'GET', path: '/payroll/export.csv', role: ['admin'], handler(ctx) {
       const month = ctx.query.month || today().slice(0, 7);
       const rows = payrollForMonth(month);
       const header = ['Emp No', 'Name', 'Role', 'Days', 'Trips', 'm3', 'Basic', 'AttAllow', 'TripAllow', 'Gross', 'Net'];

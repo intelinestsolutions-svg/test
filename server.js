@@ -7,7 +7,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join, extname, normalize } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { ROOT, userForToken, destroySession, allSettings, listBranches, getBranch, branchWhere, branchCond, branchVal } from './src/db.js';
+import { ROOT, userForToken, destroySession, allSettings, listBranches, getBranch, branchWhere, branchCond, branchVal, takeFlash, setFlash } from './src/db.js';
 import { parseCookies, parseBody, html, json, text, redirect, setCookie } from './src/lib/http.js';
 import { t } from './src/lib/html.js';
 
@@ -62,6 +62,15 @@ const routes = [
   ...printRoutes,
   ...portalRoutes,
 ];
+
+/* Tolak akses: simpan sebab dalam sesi, kemudian hantar ke papan pemuka.
+ * Mesej mesti disimpan dalam sesi kerana ctx.flash hilang bersama
+ * permintaan ini - tanpanya pengguna hanya akan nampak halaman biasa
+ * tanpa sebarang sebab kenapa akses dinafikan. */
+function deny(res, token, message) {
+  setFlash(token, [{ msg: message, type: 'err' }]);
+  redirect(res, '/dashboard');
+}
 
 /* ---------------- static files ---------------- */
 const MIME = {
@@ -136,11 +145,20 @@ const server = createServer(async (req, res) => {
       body,
       lang: cookies.lang || (user?.lang || 'bm'),
       settings: allSettings(),
-      flash: [],
+      // Mesej flash disimpan dalam sesi supaya ia kelihatan apabila route
+      // menyimpan dan redirect. Ia dibaca sekali sahaja (take-and-clear)
+      // supaya ia hilang selepas satu paparan.
+      flash: takeFlash(cookies.token),
     };
     ctx.t = (k) => t(ctx.lang, k);
     ctx.flashMsg = (msg, type = 'ok') => ctx.flash.push({ msg, type });
     ctx.hasRole = (...roles) => !!user && roles.includes(user.role);
+
+    // ---- kebenaran kewangan -------------------------------------------
+    // Peranan 'office' tidak automatik boleh urus kewangan. Admin
+    // memberikan kebenaran ini satu per satu (Tetapan → Pengguna).
+    // Admin sendiri sentiasa ya, kerana dia yang memberikannya.
+    ctx.canFinance = !!user && (user.role === 'admin' || user.can_finance === 1);
 
     // ---- branch / cawangan -------------------------------------------
     // Setiap pengguna terikat kepada satu cawangan (users.branch_id).
@@ -184,6 +202,35 @@ const server = createServer(async (req, res) => {
     /** Nilai branch_id untuk tulis ke pangkalan data. */
     ctx.bv = () => branchVal(ctx.branchId);
 
+    // ---- pemandu: hanya lorry sendiri -------------------------------
+    // Setiap akaun pemandu terikat kepada satu baris staff (users.staff_id),
+    // dan baris itu yang memiliki trip-nya. Pemandu tidak boleh melintas
+    // ke lorry atau trip pemandu lain dalam cawangan yang sama.
+    ctx.isDriver = !!user && user.role === 'driver';
+    ctx.myStaffId = ctx.isDriver ? (user.staff_id ?? null) : null;
+    /** Adakah rekod ini milik pemandu yang sedang log masuk? */
+    ctx.isMyTrip = (trip) => ctx.isDriver
+      && !!ctx.myStaffId
+      && Number(trip?.driver_id) === Number(ctx.myStaffId);
+    /** Penapis SQL untuk "trip saya". */
+    ctx.myTripCond = (alias = 't') => (ctx.isDriver && ctx.myStaffId
+      ? { clause: `${alias}.driver_id = ?`, params: [ctx.myStaffId] }
+      : null);
+    /**
+     * Penapis SQL untuk "lori saya". Lori dan pemandu tiada lajur terus
+     * antara mereka - hubungan itu datang daripada trip. Pemandu yang belum
+     * pernah memandu tidak akan nampak lori langsung, yang lebih selamat
+     * daripada memaparkan lori orang lain.
+     */
+    ctx.myLorryCond = (alias = 'l') => {
+      if (!ctx.isDriver) return null;
+      if (!ctx.myStaffId) return { clause: '1=0', params: [] };
+      return {
+        clause: `${alias}.id = (SELECT lorry_id FROM trips WHERE driver_id = ? AND lorry_id IS NOT NULL ORDER BY id LIMIT 1)`,
+        params: [ctx.myStaffId],
+      };
+    };
+
     // auth gate
     if (!matched.public) {
       if (!user) {
@@ -191,14 +238,27 @@ const server = createServer(async (req, res) => {
         return redirect(res, `/login?next=${encodeURIComponent(req.url)}`);
       }
       if (matched.role && !matched.role.includes(user.role)) {
-        ctx.flashMsg(t(ctx.lang, 'login.failed') + ' / Access denied', 'err');
-        return redirect(res, '/dashboard');
+        // Jangan beritahu "login gagal" - pengguna memang log masuk, cuma
+        // peranan mereka tidak sesuai untuk halaman ini.
+        deny(res, cookies.token, t(ctx.lang, matched.role.includes('office') ? 'err.noAccessRole' : 'err.noAccess'));
+        return undefined;
+      }
+      // Kewangan (invois, bayaran, belum terima) memerlukan kebenaran
+      // khas daripada admin - peranan 'office' sahaja tidak mencukupi.
+      if (matched.finance && !ctx.canFinance) {
+        deny(res, cookies.token, t(ctx.lang, 'err.noFinance'));
+        return undefined;
       }
     }
 
     const result = await matched.handler(ctx);
     if (result === undefined) return; // handler already responded
-    if (result && result.__redirect) return redirect(res, result.__redirect);
+    if (result && result.__redirect) {
+      // Simpan flash dalam sesi - ctx.flash hilang bersama permintaan ini,
+      // jadi tanpanya mesej "Disimpan" tidak pernah kelihatan.
+      if (ctx.flash.length) setFlash(cookies.token, ctx.flash);
+      return redirect(res, result.__redirect);
+    }
   } catch (err) {
     console.error(`\n!! ${req.method} ${pathname}\n`, err);
     if (res.headersSent) return;

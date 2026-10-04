@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS users (
   username      TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   name          TEXT NOT NULL,
-  role          TEXT NOT NULL DEFAULT 'office',   -- admin | office | driver
+  role          TEXT NOT NULL DEFAULT 'office',   -- admin | office | driver | lab
   staff_id      INTEGER,
   active        INTEGER NOT NULL DEFAULT 1,
   lang          TEXT DEFAULT 'bm',
@@ -339,6 +339,97 @@ addColumn('trips', 'remark', 'remark TEXT');
 addColumn('items', 'location', 'location TEXT');
 
 /* ------------------------------------------------------------------ *
+ * Nombor pekerja (emp_no)
+ *
+ * Format: <TINGKAT>-<CAWANGAN><urutan>
+ *
+ *   1-HQ01   admin, headquarters pertama
+ *   3-PPR01  penyelia cawangan Papar yang pertama
+ *   4-PPR01  kerani umum Papar yang pertama
+ *   6-PPR01  pemandu Papar yang pertama
+ *
+ * ANGKA PERTAMA ialah tahap hierarki - jadi senarai kakitangan yang
+ * disusun mengikut emp_no sudah tersusun dari paling tinggi ke paling
+ * rendah, dan mana-mana orang boleh baca pangkat tanpa melihat
+ * pangkalan data. Bahagian selepas itu ialah cawangan, supaya nama yang
+ * sama di dua cawangan tidak boleh tersalah campur.
+ *
+ * emp_no dicetak pada slip gaji, nota penghantaran dan ia juga menjadi
+ * ID login kakitangan.
+ * ------------------------------------------------------------------ */
+const BRANCH_ABBR = {
+  papar: 'PPR', putatan: 'PUT', tuaran: 'TUA', sikuati: 'SIK', membakut: 'MEM',
+};
+
+/* Tahap hierarki kakitangan - angka pertama emp_no.
+ *
+ * Disimpan dalam pangkalan data (bukan konstanta kod) supaya admin boleh
+ * mengubahnya dari Tetapan -> Peranan tanpa menyentuh kod dan tanpa
+ * membina semula aplikasi. Nombor kecil = pangkat lebih tinggi.
+ * 'dispatcher' purposely ada di antara kerani dan pemandu. */
+export const STAFF_LEVEL_DEFAULT = {
+  admin: 1, lab: 2, supervisor: 3, clerk: 4, dispatcher: 5, driver: 6, mechanic: 7,
+};
+const STAFF_LEVELS_KEY = 'staff_levels';
+
+/** Tahap bagi setiap peranan kakitangan, dibaca daripada pangkalan data.
+ *  Jika tetapan rosak atau peranan baharu ditambah, nilai lalai digunakan. */
+export function getStaffLevels() {
+  const fallback = { ...STAFF_LEVEL_DEFAULT };
+  try {
+    const raw = setting(STAFF_LEVELS_KEY);
+    if (!raw) return fallback;
+    const saved = JSON.parse(raw);
+    const out = {};
+    for (const [role, lv] of Object.entries(saved)) {
+      const n = Number(lv);
+      // Nombor tahap mesti 1-99: ia jadi digit pertama emp_no, jadi 0 atau
+      // 100+ akan pecahkan format yang dicetak pada slip gaji.
+      if (Number.isInteger(n) && n >= 1 && n <= 99) out[role] = n;
+    }
+    return Object.keys(out).length ? { ...fallback, ...out } : fallback;
+  } catch {
+    return fallback; // JSON rosak - jangan biarkan aplikasi jatuh
+  }
+}
+
+/** Simpan tahap kakitangan. Menolak nilai di luar 1-99 supaya emp_no
+ *  yang akan dicetak sentiasa boleh dibaca. */
+export function setStaffLevels(map) {
+  const clean = {};
+  for (const [role, lv] of Object.entries(map)) {
+    const n = Number(lv);
+    if (Number.isInteger(n) && n >= 1 && n <= 99) clean[role] = n;
+  }
+  return setSetting(STAFF_LEVELS_KEY, JSON.stringify(clean));
+}
+
+/** Singkatan cawangan yang digunakan dalam nombor pekerja, contoh PPR. */
+export function branchAbbr(branch) {
+  if (!branch) return 'HQ';
+  const code = String(branch.code ?? branch);
+  return BRANCH_ABBR[code.toLowerCase()] || code.slice(0, 3).toUpperCase();
+}
+
+/** Cadangan emp_no seterusnya bagi satu peranan + cawangan. */
+export function suggestEmpNo(role = 'driver', branchId = null) {
+  const prefix = branchAbbr(branchId ? getBranch(branchId) : null);
+  const level = getStaffLevels()[role] ?? 8;
+  const last = get(`SELECT emp_no FROM staff WHERE emp_no LIKE ? ORDER BY emp_no DESC LIMIT 1`, `${level}-${prefix}%`);
+  const n = last ? Number(last.emp_no.slice(-2)) + 1 : 1;
+  return `${level}-${prefix}${String(n).padStart(2, '0')}`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Kebenan kewangan
+ *
+ * Peranan 'office' sahaja tidak bermaksud bolehurus kewangan. Admin
+ * memberi kebenaran satu per satu melalui Tetapan → Pengguna. Admin
+ * sendiri tidak perlu kebenaran ini (dia yang memberikannya).
+ * ------------------------------------------------------------------ */
+addColumn('users', 'can_finance', 'can_finance INTEGER NOT NULL DEFAULT 0');
+
+/* ------------------------------------------------------------------ *
  * Branch scoping (cawangan)
  *
  * Rekod lama akan dapat branch_id NULL. NULL bermaksud "semua cawangan",
@@ -547,6 +638,32 @@ export function setSessionBranch(token, branchId) {
 }
 export function destroySession(token) {
   if (token) run('DELETE FROM sessions WHERE token = ?', token);
+}
+
+/* ------------------------------------------------------------------ *
+ * Flash messages
+ *
+ * Mesej "Disimpan" atau ralat hilang jika ia hanya tinggal dalam memori
+ * permintaan, sebab kebanyakan route selepas menyimpan redirect ke
+ * halaman lain. Jadi ia disimpan pada baris sesi dan dibaca sekali
+ * sahaja pada permintaan seterusnya.
+ * ------------------------------------------------------------------ */
+const FLASH_COL = 'flash_json';
+addColumn('sessions', FLASH_COL, 'flash_json TEXT');
+
+/** Simpan mesej untuk dipaparkan pada permintaan seterusnya. */
+export function setFlash(token, list) {
+  if (!token || !list?.length) return;
+  run(`UPDATE sessions SET ${FLASH_COL} = ? WHERE token = ?`, JSON.stringify(list.slice(-5)), token);
+}
+
+/** Baca dan buang mesej flash. */
+export function takeFlash(token) {
+  if (!token) return [];
+  const s = get(`SELECT ${FLASH_COL} AS f FROM sessions WHERE token = ?`, token);
+  if (!s?.f) return [];
+  run(`UPDATE sessions SET ${FLASH_COL} = NULL WHERE token = ?`, token);
+  try { return JSON.parse(s.f); } catch { return []; }
 }
 
 /* ------------------------------------------------------------------ *

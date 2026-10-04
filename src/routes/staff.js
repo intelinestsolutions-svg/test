@@ -1,4 +1,4 @@
-import { all, get, run, hashPassword, setting, listBranches, getBranch } from '../db.js';
+import { all, get, run, hashPassword, setting, listBranches, getBranch, suggestEmpNo, branchAbbr } from '../db.js';
 import { redirect, html, today, num, str, int } from '../lib/http.js';
 import {
   page, table, card, cardHead, badge, icon, esc, money, qty, fmtDate,
@@ -6,7 +6,24 @@ import {
 } from '../lib/html.js';
 import { round2 } from '../lib/biz.js';
 
-const ROLES = ['driver', 'dispatcher', 'lab', 'mechanic', 'admin'];
+/* Peranan kakitangan. Setiap peranan ada huruf kod sendiri supaya nombor
+ * pekerja dapat dibaca tanpa melihat pangkalan data (lihat suggestEmpNo).
+ * 'supervisor' dan 'clerk' mesti ada di sini - tanpanya, sf() akan menukar
+ * mana-mana peranan yang tidak dikenali kepada 'driver', jadi admin yang
+ * memilih supervisor sebenarnya akan menubuhkan seorang pemandu. */
+const ROLES = ['supervisor', 'clerk', 'dispatcher', 'driver', 'lab', 'mechanic', 'admin'];
+
+/* Petakan peranan kakitangan kepada peranan akaun login.
+ * Default ialah 'office' (pegangan cawangan, boleh urus pesanan & pembekalan).
+ * Pemandu dik-special-capkan supaya lorongya sendiri sahaja; teknikal mendapat
+ * 'lab' supaya boleh urus reka bentuk konkrit. Kebenan kewangan TIDAK diberi
+ * di sini - admin yang memberikannya dari Tetapan -> Pengguna. */
+function userRoleFor(staffRole) {
+  if (staffRole === 'driver') return 'driver';
+  if (staffRole === 'lab') return 'lab';
+  if (staffRole === 'admin') return 'admin';
+  return 'office';
+}
 
 export const staffRoutes = [
   {
@@ -75,16 +92,36 @@ export const staffRoutes = [
         ctx.flashMsg(ctx.t('set.branchRequired'), 'err');
         return { __redirect: '/staff/new' };
       }
+      // Nombor pekerja mesti unik. emp_no mempunyai kekangan UNIQUE,
+      // jadi tanpa semakan ini INSERT yang berulang akan melontar
+      // UNIQUE constraint dan admin nampak ralat pelayan 500, bukan
+      // sebab yang boleh dibetulkan.
+      if (f.emp_no) {
+        const clash = get('SELECT id, name FROM staff WHERE lower(emp_no) = ?', f.emp_no.toLowerCase());
+        if (clash) {
+          ctx.flashMsg(ctx.t('stf.empNoTaken').replace('%s', f.emp_no).replace('%n', clash.name), 'err');
+          return { __redirect: '/staff/new' };
+        }
+      }
+      if (str(ctx.body.username)) {
+        const uClash = get('SELECT id FROM users WHERE lower(username) = ?', str(ctx.body.username).toLowerCase());
+        if (uClash) {
+          ctx.flashMsg(ctx.t('stf.usernameTaken').replace('%s', str(ctx.body.username)), 'err');
+          return { __redirect: '/staff/new' };
+        }
+      }
       const r = run(`INSERT INTO staff (emp_no, name, role, phone, ic_no, licence_class, licence_expiry, address, salary, join_date, status, note, branch_id, created_at)
                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         f.emp_no, f.name, f.role, f.phone, f.ic_no, f.licence_class, f.licence_expiry, f.address,
         f.salary, f.join_date, f.status, f.note, f.branch_id, new Date().toISOString());
-      // optional login account
+      // Username lalai kepada nombor pekerja supaya kakitangan
+      // login dengan kod yang tercetak pada slip gaji. Kebenan kewangan TIDAK
+      // diberi di sini - admin yang memberikannya dari Tetapan -> Pengguna.
       if (str(ctx.body.username)) {
-        run(`INSERT INTO users (username, password_hash, name, role, staff_id, branch_id, active, created_at) VALUES (?,?,?,?,?,?,1,?)`,
+        run(`INSERT INTO users (username, password_hash, name, role, staff_id, branch_id, can_finance, active, created_at)
+             VALUES (?,?,?,?,?,?,0,1,?)`,
           str(ctx.body.username).toLowerCase(), hashPassword(str(ctx.body.password) || str(ctx.body.username)),
-          f.name, f.role === 'admin' ? 'admin' : f.role === 'driver' ? 'driver' : 'office',
-          r.id, f.branch_id, new Date().toISOString());
+          f.name, userRoleFor(f.role), r.id, f.branch_id, new Date().toISOString());
       }
       ctx.flashMsg(`${ctx.t('a.saved')}: ${f.name}`);
       return { __redirect: `/staff/${r.id}` };
@@ -179,16 +216,33 @@ function staffForm(ctx, s, err) {
   const isEdit = !!s.id;
   // Cawangan - wajib, supaya setiap kakitangan boleh dikenal pasti.
   const bl = listBranches({ activeOnly: !isEdit });
+  // Untuk staff baru, cawangan yang sedang dipilih dijadikan titik mula
+  // supaya nombor pekerja yang dicadangkan sudah betul sejak mula.
+  // Admin yang sedang melihat SEMUA cawangan perlu diberi satu cawangan
+  // sebenar - kalau tidak, pelayar akan pilih yang pertama dalam senarai
+  // tetapi nombor pekerja akan dipaparkan sebagai HQ, jadi kedua-duanya
+  // tidak sepadan.
+  const prefillBranch = isEdit
+    ? (s.branch_id || '')
+    : (s.branch_id || (ctx.branchId === 'all' ? ctx.homeBranchId : ctx.branchId) || bl[0]?.id || '');
   const branchField = bl.length
     ? field({
       label: 'Cawangan / Branch', name: 'branch_id', required: true,
-      value: s.branch_id || ctx.branchId === 'all' ? (s.branch_id || ctx.homeBranchId || '') : (s.branch_id || ctx.branchId || ''),
-      options: bl.map((b) => ({ value: b.id, label: b.name })),
+      value: prefillBranch,
+      options: bl.map((b) => ({ value: b.id, label: `${b.name} (${branchAbbr(b)})` })),
       hint: 'Kakitangan hanya nampak data cawangan ini',
     })
     : `<div class="alert warn span-2">Belum ada cawangan. <a href="/branches/new">Tambah cawangan</a> dahulu.</div>`;
+  /* Nombor pekerja dicadangkan daripada cawangan + peranan (3-PPR01, 6-PUT01)
+   * supaya admin tidak perlu menaip atau kena kod yang sama dua kali.
+   * Staff sedia ada kekal dengan kod dia; hanya dipaparkan jika kosong. */
+  const empNoValue = s.emp_no || (!isEdit ? suggestEmpNo(s.role, prefillBranch || null) : '');
   const body = `${err ? alert('err', err) : ''}${card(`<form method="post" action="${isEdit ? `/staff/${s.id}/edit` : '/staff/new'}" class="form-grid">
-      ${field({ label: T('stf.empNo'), name: 'emp_no', value: s.emp_no || '' })}
+      ${field({
+    label: T('stf.empNo'), name: 'emp_no', value: empNoValue, attrs: 'data-empno',
+    hint: isEdit ? 'Kod cawangan + peranan, contoh 3-PPR01'
+      : 'Dijana daripada cawangan & peranan. Kakitangan login dengan kod ini.',
+  })}
       ${field({ label: T('a.name'), name: 'name', value: s.name || '', required: true })}
       ${branchField}
       ${field({ label: T('a.role'), name: 'role', value: s.role, options: ROLES.map((r) => ({ value: r, label: T('stf.role.' + r) })) })}
@@ -202,15 +256,42 @@ function staffForm(ctx, s, err) {
       <label class="field span-2"><span class="field-label">${T('a.address')}</span><textarea name="address" rows="2">${esc(s.address || '')}</textarea></label>
       <label class="field span-2"><span class="field-label">${T('a.note')}</span><textarea name="note" rows="2">${esc(s.note || '')}</textarea></label>
       ${!isEdit ? `<div class="span-2 form-divider"><b>${T('stf.createLogin')} ${T('a.optional')}</b></div>
-        ${field({ label: T('stf.username'), name: 'username', value: '', hint: T('a.optional') })}
-        ${field({ label: T('login.password'), name: 'password', value: '', hint: T('a.optional') })}` : ''}
+        ${field({ label: T('stf.username'), name: 'username', value: empNoValue ? empNoValue.toLowerCase() : '', hint: 'Nombor pekerja - kakitangan login dengan kod ini' })}
+        ${field({ label: T('login.password'), name: 'password', value: '', hint: 'Kosongkan untuk guna username sebagai kata laluan' })}` : ''}
       <div class="form-actions span-2">${submitBtn(T('a.save'), { ic: 'check' })}<a class="btn btn-ghost" href="${isEdit ? `/staff/${s.id}` : '/staff'}">${T('a.cancel')}</a></div>
     </form>`)}`;
+  /* Skrip kecil: bila admin tukar cawangan atau peranan, nombor pekerja
+   * dan username login ikut dikemas kini supaya kod tidak lagi tepat dengan
+   * cawangan yang dipilih. */
+  const script = isEdit ? '' : `(() => {
+  const emp = document.querySelector('[name=emp_no]');
+  const user = document.querySelector('[name=username]');
+  const br = document.querySelector('[name=branch_id]');
+  const role = document.querySelector('[name=role]');
+  const next = new Map(${JSON.stringify(empNoPlan(bl))});
+  const sync = () => {
+    const want = next.get(br.value + '/' + role.value);
+    if (want && emp && emp.dataset.touched !== '1') emp.value = want;
+    if (want && user && !user.value) user.value = want.toLowerCase();
+  };
+  emp?.addEventListener('input', () => { emp.dataset.touched = '1'; });
+  br?.addEventListener('change', () => { emp && (emp.dataset.touched = '0'); sync(); });
+  role?.addEventListener('change', sync);
+})();`;
   return {
     title: isEdit ? `${T('a.edit')} · ${esc(s.name)}` : T('stf.new'),
-    body,
+    body, script,
     actions: isEdit ? linkBtn(T('a.back'), `/staff/${s.id}`, { ic: 'back' }) : linkBtn(T('a.cancel'), '/staff', { ic: 'back' }),
   };
+}
+
+/* Pelan nombor pekerja untuk setiap pasangan cawangan + peranan, supaya
+ * skrip boleh mengemas kini nombor tanpa panggil server. Kunci ialah
+ * "<branch_id>/<role>", nilai ialah nombor pekerja berikutnya. */
+function empNoPlan(branches) {
+  const plan = {};
+  for (const b of branches) for (const r of ROLES) plan[`${b.id}/${r}`] = suggestEmpNo(r, b.id);
+  return plan;
 }
 
 function staffDetail(ctx, id) {

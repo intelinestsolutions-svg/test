@@ -13,6 +13,8 @@ export const fleetRoutes = [
       const T = (k) => esc(ctx.t(k));
       // Lori adalah KHAS CAWANGAN.
       const lb = ctx.bcond('l');
+      // Pemandu hanya melihat lori yang dipandangnya (diketahui melalui trip).
+      const drv = ctx.myLorryCond('l');
       const rows = all(`
         SELECT l.*,
           (SELECT COUNT(*) FROM trips t WHERE t.lorry_id = l.id AND t.status != 'void') AS trips_n,
@@ -21,8 +23,8 @@ export const fleetRoutes = [
           (SELECT COALESCE(SUM(f.litres),0) FROM fuel_logs f WHERE f.lorry_id = l.id) AS fuel_l,
           (SELECT s.name FROM trips t JOIN staff s ON s.id = t.driver_id
             WHERE t.lorry_id = l.id AND t.status = 'dispatched' LIMIT 1) AS current_driver
-        FROM lorries l WHERE l.active = 1${lb ? ` AND ${lb.clause}` : ''} ORDER BY l.code`,
-      ...(lb ? lb.params : []));
+        FROM lorries l WHERE l.active = 1${lb ? ` AND ${lb.clause}` : ''}${drv ? ` AND ${drv.clause}` : ''} ORDER BY l.code`,
+      ...(lb ? lb.params : []), ...(drv ? drv.params : []));
 
       const totalCap = round2(rows.reduce((s, l) => s + num(l.capacity_m3), 0));
       const stats = `<div class="stat-grid">

@@ -12,7 +12,7 @@ const LIMIT = 60;
 export const paymentRoutes = [
   /* ============ LIST ============ */
   {
-    method: 'GET', path: '/payments', handler(ctx) {
+    method: 'GET', path: '/payments', finance: true, handler(ctx) {
       const { lang } = ctx;
       const T = (k) => esc(ctx.t(k));
       const q = ctx.query;
@@ -25,6 +25,8 @@ export const paymentRoutes = [
       if (q.to) { where.push('p.paid_at <= ?'); args.push(q.to); }
       if (q.q) { where.push('(p.payment_no LIKE ? OR p.ref_no LIKE ? OR c.name LIKE ?)'); const s = `%${q.q}%`; args.push(s, s, s); }
       if (q.status) { where.push('p.status = ?'); args.push(q.status); }
+      const pb = ctx.bcond('p');
+      if (pb) { where.push(pb.clause); args.push(...pb.params); }
       const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
       const rows = all(`
         SELECT p.*, c.name AS customer, c.code AS ccode, i.invoice_no, u.name AS by_name
@@ -75,7 +77,7 @@ export const paymentRoutes = [
     },
   },
   {
-    method: 'GET', path: '/payments.csv', handler(ctx) {
+    method: 'GET', path: '/payments.csv', finance: true, handler(ctx) {
       const rows = all(`SELECT p.payment_no, p.paid_at, c.name AS customer, i.invoice_no, p.method, p.method_detail,
                        p.ref_no, p.amount, p.note, p.status FROM payments p JOIN customers c ON c.id = p.customer_id
                        LEFT JOIN invoices i ON i.id = p.invoice_id ORDER BY p.paid_at DESC`);
@@ -85,7 +87,7 @@ export const paymentRoutes = [
 
   /* ============ NEW PAYMENT ============ */
   {
-    method: 'GET', path: '/payments/new', handler(ctx) {
+    method: 'GET', path: '/payments/new', finance: true, handler(ctx) {
       const T = (k) => esc(ctx.t(k));
       const lang = ctx.lang;
       const invId = int(ctx.query.invoice_id);
@@ -131,7 +133,7 @@ export const paymentRoutes = [
     },
   },
   {
-    method: 'POST', path: '/payments/new', handler(ctx) {
+    method: 'POST', path: '/payments/new', finance: true, handler(ctx) {
       const customerId = int(ctx.body.customer_id);
       const invoiceId = int(ctx.body.invoice_id) || null;
       const method = METHODS.includes(str(ctx.body.method)) ? str(ctx.body.method) : 'cash';
@@ -145,13 +147,16 @@ export const paymentRoutes = [
         }
       }
       const p = tx(() => {
+        // Bayaran mewarisi cawangan invoisnya (bukan cawangan whoever yang masuk).
+        const inv = invoiceId ? get('SELECT branch_id FROM invoices WHERE id = ?', invoiceId) : null;
         const r = run(`INSERT INTO payments (payment_no, receipt_no, customer_id, invoice_id, amount, method,
-                         method_detail, ref_no, paid_at, received_by, status, note)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+                         method_detail, ref_no, paid_at, received_by, status, note, branch_id)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           nextNo('payment', setting('payment_prefix', 'PAY')),
           nextNo('receipt', setting('receipt_prefix', 'RC')),
           customerId, invoiceId, amount, method, str(ctx.body.method_detail), str(ctx.body.ref_no),
-          str(ctx.body.paid_at) || today(), ctx.user.id, 'confirmed', str(ctx.body.note));
+          str(ctx.body.paid_at) || today(), ctx.user.id, 'confirmed', str(ctx.body.note),
+          inv?.branch_id ?? ctx.bv());
         if (invoiceId) recalcInvoice(invoiceId);
         return r;
       });
@@ -160,10 +165,10 @@ export const paymentRoutes = [
     },
   },
   {
-    method: 'GET', path: '/payments/:id', handler(ctx) { return html(ctx.res, paymentDetail(ctx, int(ctx.params.id))); },
+    method: 'GET', path: '/payments/:id', finance: true, handler(ctx) { return html(ctx.res, paymentDetail(ctx, int(ctx.params.id))); },
   },
   {
-    method: 'POST', path: '/payments/:id/void', handler(ctx) {
+    method: 'POST', path: '/payments/:id/void', finance: true, handler(ctx) {
       const id = int(ctx.params.id);
       const p = get('SELECT * FROM payments WHERE id = ?', id);
       if (!p) return { __redirect: '/payments' };
@@ -227,11 +232,14 @@ export const paymentRoutes = [
         return html(ctx.res, publicPage(ctx, `${ctx.t('inv2.status.paid')} — ${money(inv?.amount, ctx.lang)}`, true));
       }
       tx(() => {
+        // Bayaran portal awam: cawangan diambil daripada invois, bukan pelayar.
+        const linkInv = get('SELECT branch_id FROM invoices WHERE id = ?', link.invoice_id);
         run(`UPDATE online_payments SET status = 'paid', paid_at = ? WHERE id = ?`, new Date().toISOString(), link.id);
-        run(`INSERT INTO payments (payment_no, receipt_no, customer_id, invoice_id, amount, method, method_detail, ref_no, paid_at, received_by, status, note)
-             VALUES (?,?,?,?,?,'online',?,?,?,1,'confirmed',?)`,
+        run(`INSERT INTO payments (payment_no, receipt_no, customer_id, invoice_id, amount, method, method_detail, ref_no, paid_at, received_by, status, note, branch_id)
+             VALUES (?,?,?,?,?,'online',?,?,?,1,'confirmed',?,?)`,
           nextNo('payment', setting('payment_prefix', 'PAY')), nextNo('receipt', setting('receipt_prefix', 'RC')),
-          link.customer_id, link.invoice_id, link.amount, ctx.t('pay.method.online'), str(ctx.body.ref_no), today(), ctx.t('pay.payLink'));
+          link.customer_id, link.invoice_id, link.amount, ctx.t('pay.method.online'), str(ctx.body.ref_no), today(), ctx.t('pay.payLink'),
+          linkInv?.branch_id ?? null);
         recalcInvoice(link.invoice_id);
       });
       return html(ctx.res, publicPage(ctx, `${ctx.t('inv2.status.paid')} — ${money(link.amount, ctx.lang)}`, true));

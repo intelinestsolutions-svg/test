@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { all, get, run, tx, setSetting, hashPassword, verifyPassword, setting, db, DATA_DIR, listBranches, getBranch } from '../db.js';
+import {
+  all, get, run, tx, setSetting, hashPassword, verifyPassword, setting, db, DATA_DIR,
+  listBranches, getBranch, getStaffLevels, setStaffLevels, branchAbbr,
+} from '../db.js';
 import { redirect, html, today, num, str, int, text } from '../lib/http.js';
 import {
   page, table, card, cardHead, badge, icon, esc, money, qty, fmtDate,
@@ -23,6 +26,8 @@ export const settingsRoutes = [
       const T = (k) => esc(ctx.t(k));
       const tab = TAB_KEYS[ctx.query.tab] !== undefined ? ctx.query.tab : 'company';
       const s = ctx.settings;
+      // Tahap hierarki kakitangan - boleh disunting oleh admin di tab pengguna.
+      const levels = getStaffLevels();
       const a = allowanceRates();
 
       const tabsHtml = tabs(ctx, [
@@ -85,9 +90,20 @@ export const settingsRoutes = [
           { key: 'name', label: T('a.name') },
           { key: 'role', label: T('a.role'), cell: (r) => badge(esc(T('set.role.' + r.role)), 'role-' + r.role) },
           { key: 'staff_name', label: T('stf.title'), cell: (r) => esc(r.staff_name || '—') },
-          { key: 'branch_name', label: 'Cawangan', cell: (r) => r.branch_name
+          { key: 'branch_name', label: T('set.branch'), cell: (r) => r.branch_name
             ? badge(esc(r.branch_name), 'ok')
             : (r.role === 'admin' ? badge('Semua', 'role-admin') : badge('—', 'neutral')) },
+          { key: 'can_finance', label: T('set.financeAccess'), cell: (r) => {
+            // Admin sentiasa ada kebenaran; pemandu tidak pernah boleh.
+            if (r.role === 'admin') return badge('Admin', 'role-admin');
+            if (r.role === 'driver') return badge('—', 'neutral');
+            return `<form method="post" action="/settings/users/finance" class="inline-form">
+              <input type="hidden" name="id" value="${r.id}">
+              <input type="hidden" name="grant" value="${r.can_finance ? 0 : 1}">
+              <button type="submit" class="btn btn-ghost">${r.can_finance
+                ? badge(T('set.financeYes'), 'ok') : badge(T('set.financeNo'), 'neutral')}</button>
+            </form>`;
+          } },
           { key: 'created_at', label: T('a.created'), cell: (r) => fmtDate(r.created_at, lang) },
           { key: 'last_login', label: T('a.time'), cell: (r) => r.last_login ? fmtDate(r.last_login, lang) : '—' },
           { key: 'active', label: T('a.status'), cell: (r) => badge(r.active ? T('stf.status.active') : T('a.no'), r.active ? 'ok' : 'neutral') },
@@ -97,12 +113,14 @@ export const settingsRoutes = [
             ${field({ label: T('stf.username'), name: 'username', value: '', required: true })}
             ${field({ label: T('login.password'), name: 'password', value: '', required: true })}
             ${field({ label: T('a.name'), name: 'name', value: '', required: true })}
-            ${field({ label: T('a.role'), name: 'role', value: 'office', options: ['admin', 'office', 'driver'].map((r) => ({ value: r, label: T('set.role.' + r) })) })}
+            ${field({ label: T('a.role'), name: 'role', value: 'office', options: ['admin', 'office', 'lab', 'driver'].map((r) => ({ value: r, label: T('set.role.' + r) })) })}
             ${field({
     label: 'Cawangan / Branch', name: 'branch_id', value: ctx.branchId === 'all' ? '' : (ctx.branchId || ''),
     options: [{ value: '', label: 'Semua Cawangan (admin sahaja)' }, ...listBranches().map((b) => ({ value: b.id, label: b.name }))],
     hint: 'Pengguna biasa hanya boleh nampak data cawangan ini',
   })}
+            <label class="check span-2"><input type="checkbox" name="can_finance" value="1" checked>
+              <span>${T('set.financeAccess')} — ${T('set.financeHint')}</span></label>
             <div class="form-actions span-2">${submitBtn(T('a.add'), { ic: 'plus' })}</div>
           </form></div>
           <div class="card">${cardHead(T('login.changePw'))}<form method="post" action="/settings/password" class="form-grid">
@@ -110,6 +128,18 @@ export const settingsRoutes = [
             ${field({ label: T('login.newPw'), name: 'password', value: '', required: true })}
             <div class="form-actions span-2">${submitBtn(T('login.changePw'), { ic: 'check' })}</div>
           </form></div>
+        </div>
+        <div class="card mt">${cardHead(T('set.staffLevels'))}
+          <p class="tiny">${T('set.staffLevelsHint')}</p>
+          <form method="post" action="/settings/staff-levels" class="form-grid">
+            ${Object.keys(levels).map((r) => field({
+    label: T('stf.role.' + r), name: `lv_${r}`, type: 'number',
+    min: 1, max: 99, step: 1, value: levels[r],
+    hint: `${levels[r]}-${branchAbbr(listBranches()[0])}01`,
+  })).join('')}
+            <div class="form-actions span-2">${submitBtn(T('a.save'), { ic: 'check' })}</div>
+          </form>
+          <p class="tiny muted">${T('set.staffLevelsWarn')}</p>
         </div>`);
       } else if (tab === 'data') {
         const counts = {
@@ -157,16 +187,56 @@ export const settingsRoutes = [
       if (get('SELECT id FROM users WHERE lower(username) = ?', username)) {
         ctx.flashMsg(username, 'err'); return { __redirect: '/settings?tab=users' };
       }
-      const role = ['admin', 'office', 'driver'].includes(str(ctx.body.role)) ? str(ctx.body.role) : 'office';
+      const role = ['admin', 'office', 'lab', 'driver'].includes(str(ctx.body.role)) ? str(ctx.body.role) : 'office';
       // Admin tidak terikat kepada satu cawangan; pengguna lain mesti ada cawangan.
       const bid = getBranch(int(ctx.body.branch_id) || ctx.bv())?.id ?? null;
       if (role !== 'admin' && !bid) {
         ctx.flashMsg('Cawangan wajib untuk office/driver / Branch required', 'err');
         return { __redirect: '/settings?tab=users' };
       }
-      run(`INSERT INTO users (username, password_hash, name, role, branch_id, active, created_at) VALUES (?,?,?,?,?,1,?)`,
-        username, hashPassword(str(ctx.body.password)), str(ctx.body.name), role, bid, new Date().toISOString());
+      run(`INSERT INTO users (username, password_hash, name, role, branch_id, active, created_at, can_finance) VALUES (?,?,?,?,?,1,?,?)`,
+        username, hashPassword(str(ctx.body.password)), str(ctx.body.name), role, bid, new Date().toISOString(),
+        ctx.body.can_finance ? 1 : 0);
       ctx.flashMsg(`${ctx.t('a.saved')}: ${username}`);
+      return { __redirect: '/settings?tab=users' };
+    },
+  },
+  {
+    // Toggle kebenaran kewangan. Admin sahaja yang boleh CALL ini.
+    method: 'POST', path: '/settings/users/finance', role: ['admin'], handler(ctx) {
+      const u = get('SELECT * FROM users WHERE id = ?', int(ctx.body.id));
+      if (!u) { ctx.flashMsg(ctx.t('a.notFound'), 'err'); return { __redirect: '/settings?tab=users' }; }
+      // Pemandu tidak pernah boleh urus kewangan, apa pun request.
+      if (u.role === 'driver') { ctx.flashMsg(ctx.t('err.noAccessRole'), 'err'); return { __redirect: '/settings?tab=users' }; }
+      const grant = int(ctx.body.grant) ? 1 : 0;
+      run('UPDATE users SET can_finance = ? WHERE id = ?', grant, u.id);
+      ctx.flashMsg(`${u.username}: ${ctx.t(grant ? 'set.financeYes' : 'set.financeNo')}`);
+      return { __redirect: '/settings?tab=users' };
+    },
+  },
+  {
+    /* Ubah tahap hierarki kakitangan - digit pertama emp_no.
+     *
+     * Nombor yang sudah tercetak (slip gaji, nota penghantaran) TIDAK
+     * ditulis semula, jadi ia hanya mengubah nombor yang dicadangkan
+     * untuk kakitangan baru. Kerana itu nilai yang sama dibekalkan
+     * kepada semua cawangan: tiada dua peranan boleh boleh berebut digit
+     * pertama yang sama, yang akan jadi nombor yang tidak boleh dikenal
+     * pada slip gaji. */
+    method: 'POST', path: '/settings/staff-levels', role: ['admin'], handler(ctx) {
+      const cur = getStaffLevels();
+      const next = {};
+      for (const role of Object.keys(cur)) {
+        const n = int(ctx.body[`lv_${role}`]);
+        next[role] = n >= 1 && n <= 99 ? n : cur[role];
+      }
+      const dup = Object.values(next).filter((v, i, a) => a.indexOf(v) !== i);
+      if (dup.length) {
+        ctx.flashMsg(ctx.t('set.levelsDuplicate'), 'err');
+        return { __redirect: '/settings?tab=users' };
+      }
+      setStaffLevels(next);
+      ctx.flashMsg(ctx.t('a.saved'));
       return { __redirect: '/settings?tab=users' };
     },
   },

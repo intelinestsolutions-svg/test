@@ -56,10 +56,21 @@ export const authRoutes = [
   {
     method: 'POST', path: '/login', public: true,
     handler(ctx) {
-      const username = str(ctx.body.username).toLowerCase();
+      const login = str(ctx.body.username).trim();
       const password = str(ctx.body.password);
       const next = str(ctx.body.next) || '/dashboard';
-      const u = get('SELECT * FROM users WHERE lower(username) = ? AND active = 1', username);
+      /* Kakitangan boleh suka masuk dengan NOMBOR PEKERJA (contoh PPR-S01)
+       * bersama kata laluan, bukan username yang terpisah.
+       *
+       * Nombor pekerja sudah tercetak pada slip gaji, nota penghantaran dan
+       * senarai kakitangan, jadi setiap orang tahu login dia sendiri -
+       * tiada username lain yang perlu dihafal. Username lama kekal berfungsi
+       * supaya admin dan akaun tanpa staff (contoh 'admin') tidak rosak. */
+      const u = get(`SELECT * FROM users
+                     WHERE active = 1
+                       AND (lower(username) = ?
+                            OR staff_id = (SELECT id FROM staff WHERE emp_no = ?))
+                     LIMIT 1`, login.toLowerCase(), login.toUpperCase());
       if (!u || !verifyPassword(password, u.password_hash)) {
         return html(ctx.res, loginPage(ctx, ctx.t('login.failed'), next), 401);
       }

@@ -8,10 +8,10 @@ import { agingBuckets, customerBalance, round2 } from '../lib/biz.js';
 
 export const receivableRoutes = [
   {
-    method: 'GET', path: '/receivables', handler(ctx) {
+    method: 'GET', path: '/receivables', finance: true, handler(ctx) {
       const { lang } = ctx;
       const T = (k) => esc(ctx.t(k));
-      const a = agingBuckets(today());
+      const a = agingBuckets(today(), ctx.branchId);
       const buckets = [
         ['rec.current', a.totals.current, ''],
         ['rec.1to30', a.totals.d1, a.totals.d1 > 0 ? 'warn' : ''],
@@ -20,14 +20,15 @@ export const receivableRoutes = [
         ['rec.over90', a.totals.d4, a.totals.d4 > 0 ? 'red' : ''],
       ];
 
+      const rb = ctx.bcond('i');
       const byCustomer = all(`
         SELECT c.id, c.code, c.name, c.phone, c.area,
           COALESCE(SUM(i.amount - i.amount_paid),0) AS bal,
           COUNT(*) AS inv_n,
           MIN(i.due_date) AS oldest_due
         FROM invoices i JOIN customers c ON c.id = i.customer_id
-        WHERE i.status != 'cancelled' AND (i.amount - i.amount_paid) > 0.009
-        GROUP BY c.id ORDER BY bal DESC`);
+        WHERE i.status != 'cancelled' AND (i.amount - i.amount_paid) > 0.009${rb ? ` AND ${rb.clause}` : ''}
+        GROUP BY c.id ORDER BY bal DESC`, ...(rb ? rb.params : []));
       const grand = round2(byCustomer.reduce((s, r) => s + num(r.bal), 0));
 
       const allRows = [
@@ -81,8 +82,8 @@ export const receivableRoutes = [
     },
   },
   {
-    method: 'GET', path: '/receivables.csv', handler(ctx) {
-      const a = agingBuckets(today());
+    method: 'GET', path: '/receivables.csv', finance: true, handler(ctx) {
+      const a = agingBuckets(today(), ctx.branchId);
       const rows = all(`
         SELECT c.name AS customer, c.phone, i.invoice_no, i.issue_date, i.due_date, i.amount, i.amount_paid,
                (i.amount - i.amount_paid) AS balance

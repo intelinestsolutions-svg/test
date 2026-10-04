@@ -10,7 +10,7 @@ const LIMIT = 50;
 
 export const invoiceRoutes = [
   {
-    method: 'GET', path: '/invoices', handler(ctx) {
+    method: 'GET', path: '/invoices', finance: true, handler(ctx) {
       const { lang } = ctx;
       const T = (k) => esc(ctx.t(k));
       const q = ctx.query;
@@ -22,6 +22,8 @@ export const invoiceRoutes = [
       if (q.q) { where.push('(i.invoice_no LIKE ? OR c.name LIKE ? OR i.note LIKE ?)'); const s = `%${q.q}%`; args.push(s, s, s); }
       if (q.unpaid) where.push(`(i.amount - i.amount_paid) > 0.009 AND i.status != 'cancelled'`);
       if (q.overdue) { where.push(`(i.amount - i.amount_paid) > 0.009 AND i.due_date < ? AND i.status != 'cancelled'`); args.push(today()); }
+      const ib = ctx.bcond('i');
+      if (ib) { where.push(ib.clause); args.push(...ib.params); }
       const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
       const rows = all(`
         SELECT i.*, c.name AS customer, c.code AS ccode, c.phone,
@@ -72,7 +74,7 @@ export const invoiceRoutes = [
     },
   },
   {
-    method: 'GET', path: '/invoices.csv', handler(ctx) {
+    method: 'GET', path: '/invoices.csv', finance: true, handler(ctx) {
       const rows = all(`SELECT i.invoice_no, c.name AS customer, i.issue_date, i.due_date, i.amount, i.amount_paid,
                        (i.amount - i.amount_paid) AS balance, i.status FROM invoices i
                        JOIN customers c ON c.id = i.customer_id ORDER BY i.issue_date DESC`);
@@ -80,7 +82,7 @@ export const invoiceRoutes = [
     },
   },
   {
-    method: 'GET', path: '/invoices/new', handler(ctx) {
+    method: 'GET', path: '/invoices/new', finance: true, handler(ctx) {
       const T = (k) => esc(ctx.t(k));
       const customers = all('SELECT * FROM customers WHERE active = 1 ORDER BY name');
       const uninvoiced = get(`SELECT o.id, o.order_no, o.amount, o.delivery_date, c.name AS customer
@@ -104,7 +106,7 @@ export const invoiceRoutes = [
     },
   },
   {
-    method: 'POST', path: '/invoices/new', handler(ctx) {
+    method: 'POST', path: '/invoices/new', finance: true, handler(ctx) {
       let amount = num(ctx.body.amount);
       let customerId = int(ctx.body.customer_id);
       let issueDate = str(ctx.body.issue_date) || today();
@@ -121,18 +123,18 @@ export const invoiceRoutes = [
         }
       }
       if (amount <= 0) { ctx.flashMsg(ctx.t('a.amount'), 'err'); return { __redirect: '/invoices/new' }; }
-      const r = run(`INSERT INTO invoices (invoice_no, order_id, customer_id, issue_date, due_date, amount, sst_amount, amount_paid, status, note)
-                     VALUES (?,?,?,?,?,?,?,0,'unpaid',?)`,
-        nextNo('invoice', setting('invoice_prefix', 'INV')), null, customerId, issueDate, dueDate, amount, 0, str(ctx.body.note));
+      const r = run(`INSERT INTO invoices (invoice_no, order_id, customer_id, issue_date, due_date, amount, sst_amount, amount_paid, status, note, branch_id)
+                     VALUES (?,?,?,?,?,?,?,0,'unpaid',?,?)`,
+        nextNo('invoice', setting('invoice_prefix', 'INV')), null, customerId, issueDate, dueDate, amount, 0, str(ctx.body.note), ctx.bv());
       ctx.flashMsg(ctx.t('a.saved'));
       return { __redirect: `/invoices/${r.id}` };
     },
   },
   {
-    method: 'GET', path: '/invoices/:id', handler(ctx) { return html(ctx.res, invoiceDetail(ctx, int(ctx.params.id))); },
+    method: 'GET', path: '/invoices/:id', finance: true, handler(ctx) { return html(ctx.res, invoiceDetail(ctx, int(ctx.params.id))); },
   },
   {
-    method: 'POST', path: '/invoices/:id/edit', handler(ctx) {
+    method: 'POST', path: '/invoices/:id/edit', finance: true, handler(ctx) {
       const id = int(ctx.params.id);
       run(`UPDATE invoices SET customer_id=?, issue_date=?, due_date=?, amount=?, note=? WHERE id=?`,
         int(ctx.body.customer_id), str(ctx.body.issue_date), str(ctx.body.due_date), num(ctx.body.amount), str(ctx.body.note), id);
@@ -142,7 +144,7 @@ export const invoiceRoutes = [
     },
   },
   {
-    method: 'POST', path: '/invoices/:id/cancel', handler(ctx) {
+    method: 'POST', path: '/invoices/:id/cancel', finance: true, handler(ctx) {
       const id = int(ctx.params.id);
       const inv = get('SELECT * FROM invoices WHERE id = ?', id);
       if (num(inv?.amount_paid) > 0) { ctx.flashMsg(ctx.t('a.no'), 'err'); return { __redirect: `/invoices/${id}` }; }
@@ -153,7 +155,7 @@ export const invoiceRoutes = [
   },
   /* ---- payment link (online) ---- */
   {
-    method: 'POST', path: '/invoices/:id/link', handler(ctx) {
+    method: 'POST', path: '/invoices/:id/link', finance: true, handler(ctx) {
       const id = int(ctx.params.id);
       const inv = get('SELECT * FROM invoices WHERE id = ?', id);
       if (!inv) return { __redirect: '/invoices' };
@@ -161,8 +163,8 @@ export const invoiceRoutes = [
       const base = ctx.settings.base_url.replace(/\/$/, '');
       const ref = `PL-${inv.invoice_no}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
       const payUrl = `${base}/pay/${ref}`;
-      run(`INSERT INTO online_payments (invoice_id, customer_id, provider, ref, amount, pay_url, status, created_at)
-           VALUES (?,?,?,?,?,?, 'pending', ?)`, inv.id, inv.customer_id, 'paylink', ref, bal, payUrl, new Date().toISOString());
+      run(`INSERT INTO online_payments (invoice_id, customer_id, provider, ref, amount, pay_url, status, created_at, branch_id)
+           VALUES (?,?,?,?,?,?, 'pending', ?, ?)`, inv.id, inv.customer_id, 'paylink', ref, bal, payUrl, new Date().toISOString(), inv.branch_id ?? ctx.bv());
       ctx.flashMsg(`${ctx.t('pay.payLink')}: ${payUrl}`);
       return { __redirect: `/invoices/${id}` };
     },

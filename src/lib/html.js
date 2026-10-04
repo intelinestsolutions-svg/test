@@ -158,8 +158,28 @@ function navHtml(ctx) {
       <div class="nav-group-title">${t(lang, g.group)}</div>
       ${g.items.map(([href, ic, key]) => {
         const active = url === href || (href !== '/dashboard' && url.startsWith(href + '/')) || (href === '/dashboard' && url === '/');
-        const locked = user.role === 'driver' && ['/settings', '/payroll', '/purchasing', '/mix'].includes(href);
-        if (locked) return '';
+        // ---- siapa boleh nampak halaman mana ------------------------------
+        // KHAS ADMIN: payroll, attendance, laporan.
+        const adminOnly = ['/payroll', '/attendance', '/reports'];
+        if (adminOnly.includes(href) && user.role !== 'admin') return '';
+
+        // KEWANGAN: perlu kebenaran khas daripada admin; peranan 'office'
+        // sahaja tidak mencukupi. Pemandu tidak pernah.
+        const financePages = ['/invoices', '/payments', '/receivables'];
+        if (financePages.includes(href) && !ctx.canFinance) return '';
+
+        // PEKERJAAN: site & setting - admin sahaja.
+        const officeOnly = ['/settings'];
+        if (officeOnly.includes(href) && user.role !== 'admin') return '';
+
+        // BEKALAN: pembelian & pembekal - pejabat + admin sahaja.
+        // Pemandu boleh LIHAT diesel, fuel dan simpanan inventori, tetapi
+        // tidak boleh membuat pesanan pembelian.
+        const supplyPages = ['/purchasing', '/suppliers'];
+        if (supplyPages.includes(href) && !['admin', 'office'].includes(user.role)) return '';
+
+        // REKA BENTUK KONKRIT: teknikal/jurutera + admin sahaja.
+        if (href === '/mix' && !['admin', 'lab'].includes(user.role)) return '';
         return `<a class="nav-item ${active ? 'on' : ''}" href="${href}">${icon(ic)}<span>${t(lang, key)}</span></a>`;
       }).join('')}
     </div>`).join('')

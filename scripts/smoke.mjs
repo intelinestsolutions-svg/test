@@ -85,7 +85,10 @@ for (const p of ['/orders?status=draft', '/orders?status=confirmed', '/deliverie
 
 /* ---------- new-record forms ---------- */
 console.log('\nForms:');
-for (const p of ['/orders/new', '/payments/new', '/deliveries/new', '/inventory/move', '/inventory/adjust',
+/* Tiada /deliveries/new - penghantaran dijana daripada pesanan, bukan
+ * ditulis tangan. Ia pernah ada dalam senarai ini, dan hanya "lulus"
+ * kerana halaman 404 dihantar dengan HTTP 200. */
+for (const p of ['/orders/new', '/payments/new', '/inventory/move', '/inventory/adjust',
   '/purchasing/new', '/suppliers/new', '/fuel/new', '/staff/new', '/mix/new', '/invoices/new',
   '/attendance']) await hit(p);
 
@@ -129,8 +132,30 @@ await hit('/nonexistent-page-xyz', { expect: 404 });
 /* ---------- driver role ---------- */
 console.log('\nDriver role:');
 cookie = '';
-await req('/login', { method: 'POST', body: 'username=driver&password=driver123' });
+await req('/login', { method: 'POST', body: 'username=6-PPR01&password=6-ppr01' });
 for (const p of ['/dashboard', '/deliveries', `/deliveries/${tId}`, '/orders', '/fleet', '/settings']) await hit(p);
+
+/* ---------- supervisor vs clerk (kewangan diberi admin sahaja) ---------- */
+console.log('\nSupervisor has finance, clerk does not:');
+cookie = '';
+await req('/login', { method: 'POST', body: 'username=3-PPR01&password=3-ppr01' });
+for (const p of ['/orders', '/invoices', '/payments', '/purchasing']) await hit(p);
+await hit('/payroll', { expect: 302 });
+cookie = '';
+await req('/login', { method: 'POST', body: 'username=4-PPR01&password=4-ppr01' });
+await hit('/orders');
+await hit('/invoices', { expect: 302 });   // clerk tiada kebenaran kewangan
+await hit('/payments', { expect: 302 });
+await hit('/purchasing');                  // clerk boleh pembekalan
+
+/* ---------- login by employee code ---------- */
+console.log('\nLogin by employee code:');
+cookie = '';
+await hit('/invoices', { expect: 302 });   // belum login
+const byCode = await req('/login', { method: 'POST', body: 'username=6-PPR01&password=6-ppr01' });
+if (byCode.status !== 302) console.log(`  !! login by code -> ${byCode.status}`);
+await hit('/deliveries');
+await hit('/login', { method: 'POST', body: 'username=6-PPR01&password=wrong', expect: 401 });
 
 /* ---------- summary ---------- */
 const bad = results.filter((r) => !r.ok);

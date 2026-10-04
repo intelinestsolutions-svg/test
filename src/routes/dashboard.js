@@ -9,7 +9,9 @@ export const dashboardRoutes = [
       const { lang } = ctx;
       const T = (k) => esc(ctx.t(k));
       const date = ctx.query.date || today();
-      const k = dashboardKpis(date);
+      // KPI sentiasa bagi cawangan yang sedang dilihat. Admin boleh pilih
+      // "Semua Cawangan" untuk jumlah gabungan.
+      const k = dashboardKpis(date, ctx.branchId);
 
       /* ---- stat cards ---- */
       const fleetBy = (s) => num(k.fleet.find((f) => f.status === s)?.n);
@@ -50,10 +52,10 @@ export const dashboardRoutes = [
       /* ---- quick actions ---- */
       const quick = card(`
         <div class="quick-grid">
-          ${linkBtn(T('dash.newOrder'), '/orders/new', { ic: 'plus', variant: 'primary' })}
+          ${ctx.user.role === 'driver' ? '' : linkBtn(T('dash.newOrder'), '/orders/new', { ic: 'plus', variant: 'primary' })}
           ${linkBtn(T('dlv.board'), '/schedule', { ic: 'schedule' })}
-          ${linkBtn(T('dash.newCust'), '/customers/new', { ic: 'customers' })}
-          ${linkBtn(T('dash.receivePayment'), '/payments/new', { ic: 'payments' })}
+          ${ctx.user.role === 'driver' ? '' : linkBtn(T('dash.newCust'), '/customers/new', { ic: 'customers' })}
+          ${ctx.user.role === 'driver' ? '' : linkBtn(T('dash.receivePayment'), '/payments/new', { ic: 'payments' })}
           ${linkBtn(T('dash.recordFuel'), '/fuel/new', { ic: 'fuel' })}
           ${linkBtn(T('dash.stockIn'), '/inventory/in', { ic: 'inventory' })}
         </div>`, 'quick-card');

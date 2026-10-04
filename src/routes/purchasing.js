@@ -9,7 +9,7 @@ import { recordMovement, stockLevel, round2 } from '../lib/biz.js';
 export const purchasingRoutes = [
   /* ============ suppliers ============ */
   {
-    method: 'GET', path: '/suppliers', handler(ctx) {
+    method: 'GET', path: '/suppliers', role: ['admin', 'office'], handler(ctx) {
       const T = (k) => esc(ctx.t(k));
       const rows = all(`SELECT s.*, (SELECT COUNT(*) FROM purchases p WHERE p.supplier_id = s.id) AS po_n,
         (SELECT COALESCE(SUM(p.amount),0) FROM purchases p WHERE p.supplier_id = s.id) AS spend
@@ -30,12 +30,12 @@ export const purchasingRoutes = [
     },
   },
   {
-    method: 'GET', path: '/suppliers/new', handler(ctx) {
+    method: 'GET', path: '/suppliers/new', role: ['admin', 'office'], handler(ctx) {
       return html(ctx.res, page(ctx, supplierForm(ctx, { active: 1 }, null)));
     },
   },
   {
-    method: 'POST', path: '/suppliers/new', handler(ctx) {
+    method: 'POST', path: '/suppliers/new', role: ['admin', 'office'], handler(ctx) {
       const f = sf(ctx);
       run(`INSERT INTO suppliers (code, name, phone, email, area, address, note, active) VALUES (?,?,?,?,?,?,?,?)`,
         f.code, f.name, f.phone, f.email, f.area, f.address, f.note, f.active);
@@ -44,14 +44,14 @@ export const purchasingRoutes = [
     },
   },
   {
-    method: 'GET', path: '/suppliers/:id/edit', handler(ctx) {
+    method: 'GET', path: '/suppliers/:id/edit', role: ['admin', 'office'], handler(ctx) {
       const s = get('SELECT * FROM suppliers WHERE id = ?', int(ctx.params.id));
       if (!s) { ctx.flashMsg('404', 'err'); return { __redirect: '/suppliers' }; }
       return html(ctx.res, page(ctx, supplierForm(ctx, s, null)));
     },
   },
   {
-    method: 'POST', path: '/suppliers/:id/edit', handler(ctx) {
+    method: 'POST', path: '/suppliers/:id/edit', role: ['admin', 'office'], handler(ctx) {
       const f = sf(ctx);
       run(`UPDATE suppliers SET code=?, name=?, phone=?, email=?, area=?, address=?, note=?, active=? WHERE id=?`,
         f.code, f.name, f.phone, f.email, f.area, f.address, f.note, f.active, int(ctx.params.id));
@@ -62,14 +62,17 @@ export const purchasingRoutes = [
 
   /* ============ purchase orders ============ */
   {
-    method: 'GET', path: '/purchasing', handler(ctx) {
+    method: 'GET', path: '/purchasing', role: ['admin', 'office'], handler(ctx) {
       const { lang } = ctx;
       const T = (k) => esc(ctx.t(k));
+      // Pembelian tertakluk kepada cawangan.
+      const pbb = ctx.bcond('p');
       const rows = all(`
         SELECT p.*, s.name AS supplier,
           (SELECT COUNT(*) FROM purchase_items pi WHERE pi.purchase_id = p.id) AS lines
         FROM purchases p JOIN suppliers s ON s.id = p.supplier_id
-        WHERE p.status != 'cancelled' ORDER BY p.order_date DESC, p.id DESC LIMIT 100`);
+        WHERE p.status != 'cancelled'${pbb ? ` AND ${pbb.clause}` : ''}
+        ORDER BY p.order_date DESC, p.id DESC LIMIT 100`, ...(pbb ? pbb.params : []));
       const pending = rows.filter((r) => r.status === 'ordered');
       const spend = round2(rows.filter((r) => r.status === 'received').reduce((s, r) => s + num(r.amount), 0));
       return html(ctx.res, page(ctx, {
@@ -96,14 +99,14 @@ export const purchasingRoutes = [
     },
   },
   {
-    method: 'GET', path: '/purchasing/new', handler(ctx) {
+    method: 'GET', path: '/purchasing/new', role: ['admin', 'office'], handler(ctx) {
       return html(ctx.res, page(ctx, poForm(ctx, {
         po_no: nextNo('purchase', 'PO'), order_date: today(), delivery_date: today(), status: 'ordered',
       }, null)));
     },
   },
   {
-    method: 'POST', path: '/purchasing/new', handler(ctx) {
+    method: 'POST', path: '/purchasing/new', role: ['admin', 'office'], handler(ctx) {
       const suppliers = all('SELECT * FROM suppliers WHERE active = 1 ORDER BY name');
       const items = all('SELECT * FROM items WHERE active = 1 ORDER BY category, name');
       const lineIds = toArray(ctx.body.item_id);
@@ -133,16 +136,16 @@ export const purchasingRoutes = [
     },
   },
   {
-    method: 'GET', path: '/purchasing/:id', handler(ctx) { return html(ctx.res, poDetail(ctx, int(ctx.params.id))); },
+    method: 'GET', path: '/purchasing/:id', role: ['admin', 'office'], handler(ctx) { return html(ctx.res, poDetail(ctx, int(ctx.params.id))); },
   },
   {
-    method: 'POST', path: '/purchasing/:id/receive', handler(ctx) {
+    method: 'POST', path: '/purchasing/:id/receive', role: ['admin', 'office'], handler(ctx) {
       receivePO(int(ctx.params.id), ctx.user.id, false);
       return { __redirect: `/purchasing/${int(ctx.params.id)}` };
     },
   },
   {
-    method: 'POST', path: '/purchasing/:id/cancel', handler(ctx) {
+    method: 'POST', path: '/purchasing/:id/cancel', role: ['admin', 'office'], handler(ctx) {
       run(`UPDATE purchases SET status = 'cancelled' WHERE id = ?`, int(ctx.params.id));
       ctx.flashMsg(ctx.t('pur.status.cancelled'));
       return { __redirect: '/purchasing' };

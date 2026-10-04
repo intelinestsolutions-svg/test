@@ -5,7 +5,7 @@
  *   node src/seed.js --force  -> wipe operational data first
  */
 import {
-  all, get, run, tx, nextNo, setting, setSetting, hashPassword,
+  all, get, run, tx, nextNo, setting, setSetting, hashPassword, getStaffLevels,
 } from './db.js';
 import { addDays, today, monthStart } from './lib/http.js';
 import {
@@ -17,17 +17,28 @@ const force = process.argv.includes('--force');
 /* ------------------------------------------------------------------ *
  * helpers
  * ------------------------------------------------------------------ */
-function upsertUser(username, password, name, role, branchId = null) {
+/* Kata laluan yang DIJANA oleh seed, disimpan supaya ringkasan login boleh
+ * menunjuk tepat. Akaun yang sudah wujud tidak disentuh, jadi kata laluannya
+ * tidak diketahui di sini - ia tidak boleh dicetak (hanya hash disimpan). */
+const seedPasswords = new Map();
+function noteSeedPassword(username, password) { seedPasswords.set(username.toLowerCase(), password); }
+
+function upsertUser(username, password, name, role, branchId = null, canFinance = null) {
   const existing = get('SELECT * FROM users WHERE lower(username) = ?', username.toLowerCase());
   if (existing) {
     if (existing.branch_id !== branchId && branchId !== null) {
       run('UPDATE users SET branch_id = ? WHERE id = ?', branchId, existing.id);
     }
+    if (canFinance !== null && existing.can_finance !== canFinance) {
+      run('UPDATE users SET can_finance = ? WHERE id = ?', canFinance ? 1 : 0, existing.id);
+    }
     return existing.id;
   }
-  const r = run(`INSERT INTO users (username, password_hash, name, role, branch_id, active, created_at)
-                 VALUES (?,?,?,?,?,1,?)`,
-    username.toLowerCase(), hashPassword(password), name, role, branchId, new Date().toISOString());
+  const r = run(`INSERT INTO users (username, password_hash, name, role, branch_id, can_finance, active, created_at)
+                 VALUES (?,?,?,?,?,?,1,?)`,
+    username.toLowerCase(), hashPassword(password), name, role, branchId,
+    canFinance ? 1 : 0, new Date().toISOString());
+  noteSeedPassword(username, password);
   return r.id;
 }
 
@@ -87,7 +98,10 @@ function upsertLorry(l) {
 }
 
 function upsertStaff(s) {
-  const found = get('SELECT * FROM staff WHERE emp_no = ? OR name = ?', s.emp_no, s.name);
+  // Cari ikut emp_no SAHAJA. Kalau ikut nama jugak, cawangan lain yang
+  // guna nama sama akan "tumpukan" kepada baris cawangan pertama - jadi
+  // setiap pemandu di cawangan lain hilang sepenuhnya.
+  const found = get('SELECT id FROM staff WHERE emp_no = ?', s.emp_no);
   if (found) return found.id;
   return run(`INSERT INTO staff (emp_no, name, role, phone, ic_no, licence_class, licence_expiry, address, salary, join_date, status, branch_id, created_at)
               VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?)`,
@@ -96,7 +110,9 @@ function upsertStaff(s) {
 }
 
 function upsertSupplier({ code, name, phone, area, address = '', note = '', branch_id = null }) {
-  const found = get('SELECT * FROM suppliers WHERE code = ? OR name = ?', code, name);
+  // Sentiasa ikut branch_id: pembekal adalah KHAS CAWANGAN, jadi jangan
+  // cari berdasarkan nama sahaja - cawangan lain akan "tumpukan" ke baris ini.
+  const found = get('SELECT id FROM suppliers WHERE code = ? AND branch_id IS ?', code, branch_id);
   if (found) return found.id;
   return run('INSERT INTO suppliers (code, name, phone, area, address, note, branch_id, active) VALUES (?,?,?,?,?,?,?,1)',
     code, name, phone, area, address, note, branch_id).id;
@@ -164,11 +180,16 @@ for (const [k, v] of Object.entries(SETTINGS)) {
 }
 
 /* ---------- 2. users ---------- */
-// Admin tidak terikat cawangan (lihat semua). Office & driver ada cawangan rumah.
+/* Admin tidak terikat cawangan (lihat semua). Pejabat & pemandu ada cawangan
+ * rumah, dan akaun mereka dicipta selepas staff (bahagian 6) kerana username
+ * mereka ialah nombor pekerja sendiri.
+ *
+ * actorId = "siapa yang cipta" bagi baris yang dijana seed. Seed bukan
+ * tindakan seorang manusia, jadi ia dikira sebagai kerja admin - bukan
+ * dipinjam kepada supervisor mana-mana cawangan, yang akan jadi tidak tepat. */
 const adminId = upsertUser('admin', 'admin123', 'Pengurus Siri', 'admin', null);
-const officeId = upsertUser('office', 'office123', 'Siti Hajar', 'office', branchOf('papar'));
+const actorId = adminId;
 setSetting(`lang_${adminId}`, 'bm');
-setSetting(`lang_${officeId}`, 'bm');
 
 /* ---------- 3. mix designs (Sabah ready-mix grades) ---------- */
 const MIXES = [
@@ -273,6 +294,31 @@ const STAFF_BASE = [
   { role: 'dispatcher', name: 'Siti Hajar', phone: '011-2233 4455', salary: 2400, join: '2021-11-01' },
   { role: 'dispatcher', name: 'Nurul Azizah', phone: '013-887 1122', salary: 2350, join: '2022-06-13' },
 ];
+
+/* ==========================================================================
+ * Supervisor & general clerk - satu pasang bagi SETIAP cawangan.
+ *
+ * Supervisor    : memegang akaun login pejabat dan diberi kebenaran
+ *                 kewangan - dia pengesyor cawangan.
+ * General clerk : menguruskan invois, pesanan & dokumen harian; TIDAK diberi
+ *                 kebenaran kewangan sehingga admin memberikannya.
+ *
+ * Nama diberi akhiran cawangan supaya setiap orang unik dalam sistem.
+ * ======================================================================== */
+const SUPERVISORS = [
+  { role: 'supervisor', name: 'Hj. Ramli bin Zainal', phone: '013-880 1001', salary: 3200, join: '2019-06-03' },
+  { role: 'supervisor', name: 'Pn. Salmah binti Osman', phone: '013-880 1002', salary: 3150, join: '2020-02-17' },
+  { role: 'supervisor', name: 'Hj. Yusof bin Ahdan', phone: '013-880 1003', salary: 3100, join: '2020-09-14' },
+  { role: 'supervisor', name: 'Pn. Rosnah binti Ismail', phone: '013-880 1004', salary: 3050, join: '2021-01-25' },
+  { role: 'supervisor', name: 'En. Dominic anak Gading', phone: '013-880 1005', salary: 3000, join: '2021-08-09' },
+];
+const CLERKS = [
+  { role: 'clerk', name: 'Norhayati binti Matin', phone: '013-880 2001', salary: 2300, join: '2022-01-10' },
+  { role: 'clerk', name: 'Fauziah binti Abdullah', phone: '013-880 2002', salary: 2250, join: '2022-05-16' },
+  { role: 'clerk', name: 'Rohaida binti Suhaimi', phone: '013-880 2003', salary: 2250, join: '2022-10-03' },
+  { role: 'clerk', name: 'Shahrina binti Hamid', phone: '013-880 2004', salary: 2200, join: '2023-03-06' },
+  { role: 'clerk', name: 'Wong Vui Choon', phone: '013-880 2005', salary: 2200, join: '2023-07-24' },
+];
 /* Kakitangan shared (headquarters) - tidak terikat satu cawangan. */
 const STAFF_SHARED = [
   { role: 'mechanic', name: 'Kumar Muthu', phone: '019-556 2211', salary: 2600, join: '2020-09-01' },
@@ -280,35 +326,109 @@ const STAFF_SHARED = [
 ];
 
 const STAFF = [];
-let empN = 0;
-const empNo = (role) => (role === 'driver' ? 'D' : role === 'mechanic' ? 'M' : role === 'lab' ? 'Q' : 'X') + String(++empN).padStart(2, '0');
+/* Nombor pekerja: <TINGKAT>-<CAWANGAN><urutan>
+ *
+ *   1-HQ01   admin, headquarters pertama
+ *   2-HQ01   jurutera / teknikal
+ *   3-PPR01  penyelia cawangan Papar
+ *   4-PPR01  kerani umum Papar
+ *   6-PPR01  pemandu Papar
+ *
+ * Angka pertama ialah tahap hierarki (lihat STAFF_LEVEL dalam db.js),
+ * jadi susunan mengikut nombor sudah tersusun dari atas ke bawah. */
+const BR_ABBR = { papar: 'PPR', putatan: 'PUT', tuaran: 'TUA', sikuati: 'SIK', membakut: 'MEM' };
+const seqByLevelBranch = new Map();
+function empNo(role, bcode = null) {
+  const level = getStaffLevels()[role] ?? 8;
+  const prefix = bcode ? (BR_ABBR[bcode] || bcode.slice(0, 3).toUpperCase()) : 'HQ';
+  const key = `${level}-${prefix}`;
+  const n = (seqByLevelBranch.get(key) || 0) + 1;
+  seqByLevelBranch.set(key, n);
+  return `${key}${String(n).padStart(2, '0')}`;
+}
 for (const bcode of BR_CODES) {
-  const perBranch = bcode === 'papar' ? 3 : bcode === 'putatan' ? 2 : 2;
+  // Pemandu: setiap cawangan perlukan 2 atau lebih (seorang lagi sebagai
+  // backup). Cawangan utama (Papar) mendapat 3.
+  const perBranch = bcode === 'papar' ? 3 : 2;
   let added = 0;
   for (const s of STAFF_BASE) {
     if (added >= perBranch) break;
-    if (s.role === 'driver' || bcode === 'papar') { STAFF.push({ ...s, emp_no: empNo(s.role), branch_id: branchOf(bcode) }); added++; }
+    if (s.role === 'driver') {
+      // Nama diberi akhiran cawangan supaya setiap pemandu unik - nama yang
+      // sama di cawangan lain akan kelihatan seperti satu orang sahaja.
+      STAFF.push({ ...s, emp_no: empNo(s.role, bcode), name: `${s.name} (${bcode})`, branch_id: branchOf(bcode) });
+      added++;
+    }
   }
   // Setiap cawangan mesti ada dispatcher sendiri.
   const disp = STAFF_BASE.find((x) => x.role === 'dispatcher');
   if (!STAFF.some((s) => s.role === 'dispatcher' && s.branch_id === branchOf(bcode))) {
-    STAFF.push({ ...disp, emp_no: empNo('dispatcher'), name: `${disp.name} (${bcode})`, branch_id: branchOf(bcode) });
+    STAFF.push({ ...disp, emp_no: empNo('dispatcher', bcode), name: `${disp.name} (${bcode})`, branch_id: branchOf(bcode) });
   }
+
+  // Supervisor + general clerk: satu bagi setiap cawangan. Indeks ikut
+  // senarai cawangan supaya setiap orang dapat nama & nombor yang betul.
+  const bi = BR_CODES.indexOf(bcode);
+  const sup = SUPERVISORS[bi];
+  const clk = CLERKS[bi];
+  STAFF.push({ ...sup, emp_no: empNo('supervisor', bcode), name: `${sup.name} (${bcode})`, branch_id: branchOf(bcode) });
+  STAFF.push({ ...clk, emp_no: empNo('clerk', bcode), name: `${clk.name} (${bcode})`, branch_id: branchOf(bcode) });
 }
 for (const s of STAFF_SHARED) STAFF.push({ ...s, emp_no: empNo(s.role), branch_id: null });
 
 const staffIds = {};
 for (const s of STAFF) staffIds[s.emp_no] = upsertStaff(s);
 
-/* Akaun login pemandu - satu bagi setiap cawangan supaya boleh diuji. */
+/* Akaun login kakitangan cawangan.
+ *
+ * USERNAME ialah NOMBOR PEKERJA itu sendiri - 6-PPR01, 3-PPR01, dan
+ * seterusnya. Ini deliberate: nombor yang sama tercetak pada slip gaji,
+ * nota penghantaran dan papan tanda, jadi tiada perlu hafal username lain.
+ * Kata laluan data contoh ialah nombor yang sama huruf kecil (ppr-d01);
+ * admin menetapkan kata laluan sebenar.
+ *
+ * Setiap akaun mesti terikat kepada baris staff NYATA. Kalau ada yang hilang,
+ * seed gagal dengan jelas - bukan senyap berkongsi staff_id dengan orang lain,
+ * yang akan menyebabkan satu pemandu nampak melihat semua trip pemandu lain. */
+const loginFor = (s) => [s.emp_no, s.emp_no.toLowerCase()];
+
 const drivers = STAFF.filter((s) => s.role === 'driver');
-BR_CODES.forEach((bcode, i) => {
+BR_CODES.forEach((bcode) => {
   const d = drivers.find((x) => x.branch_id === branchOf(bcode));
-  if (!d) return;
-  const u = upsertUser(`driver${i + 1}`, `driver${i + 1}`, d.name, 'driver', branchOf(bcode));
-  run('UPDATE users SET staff_id = ? WHERE id = ?', staffIds[d.emp_no], u);
+  if (!d) throw new Error(`Seed: tiada pemandu bagi cawangan ${bcode}`);
+  const sid = staffIds[d.emp_no];
+  if (!sid) throw new Error(`Seed: staff ${d.emp_no} tidak dijumpai dalam pangkalan data`);
+  const u = upsertUser(...loginFor(d), d.name, 'driver', branchOf(bcode), 0);
+  run('UPDATE users SET staff_id = ? WHERE id = ?', sid, u);
 });
-const dispUser = upsertUser('office', 'office123', 'Siti Hajar', 'office', branchOf('papar'));
+
+// Teknikal / jurutera - satu-satunya peranan di luar admin yang boleh
+// mengurus reka bentuk konkrit. Headquarters (tanpa cawangan) kerana
+// reka bentuk adalah standard syarikat.
+const labStaff = STAFF.find((s) => s.role === 'lab');
+const labCreds = labStaff ? loginFor(labStaff) : ['lab', 'lab123'];
+const labUser = upsertUser(...labCreds, labStaff ? labStaff.name : 'Nurul Izzati', 'lab', null, 0);
+if (labStaff) run('UPDATE users SET staff_id = ? WHERE id = ?', staffIds[labStaff.emp_no], labUser);
+
+/* Supervisor & general clerk bagi setiap cawangan.
+ *
+ *   papar   -> 3-PPR01 (penyelia)  4-PPR01 (kerani)
+ *   putatan -> 3-PUT01             4-PUT01   dan seterusnya
+ *
+ * Supervisor DIBERI kebenaran kewangan (dia mengesahkan bayaran), clerk TIDAK -
+ * admin perlu memberikannya secara manual dari Tetapan -> Pengguna. */
+const sups = STAFF.filter((s) => s.role === 'supervisor');
+const clks = STAFF.filter((s) => s.role === 'clerk');
+BR_CODES.forEach((bcode) => {
+  const bid = branchOf(bcode);
+  const sup = sups.find((x) => x.branch_id === bid);
+  const clk = clks.find((x) => x.branch_id === bid);
+  if (!sup || !clk) throw new Error(`Seed: supervisor/clerk tiada bagi cawangan ${bcode}`);
+  const su = upsertUser(...loginFor(sup), sup.name, 'office', bid, 1);
+  const cu = upsertUser(...loginFor(clk), clk.name, 'office', bid, 0);
+  run('UPDATE users SET staff_id = ? WHERE id = ?', staffIds[sup.emp_no], su);
+  run('UPDATE users SET staff_id = ? WHERE id = ?', staffIds[clk.emp_no], cu);
+});
 
 /* ---------- 7. customers + sites ---------- */
 const CUSTOMERS = [
@@ -427,7 +547,7 @@ if (!hasOrders) {
                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       nextNo('order', setting('order_prefix', 'SO')), cust, site, oDate, dDate, 'am', mix,
       m.volume_m3, m.unit_price, m.discount, m.delivery_charge, m.sst_rate, m.subtotal, m.amount,
-      'confirmed', po_ref, branchId, officeId, new Date().toISOString(), new Date().toISOString());
+      'confirmed', po_ref, branchId, actorId, new Date().toISOString(), new Date().toISOString());
     return get('SELECT * FROM orders WHERE id = ?', r.id);
   }
 
@@ -472,7 +592,7 @@ if (!hasOrders) {
             VALUES (?,?,?,?,?,'trip',?,?,?,?,?,?,?)`,
         item.id, (tr.load_time || `${tr.created_at}`).slice(0, 10), 'out', Math.round(q * 1000) / 1000,
         item.unit_cost, tripId, tr.trip_no, tr.lorry_id, `${o.order_no} ${o.mix_code}`,
-        o.branch_id, officeId, new Date().toISOString());
+        o.branch_id, actorId, new Date().toISOString());
     }
   }
 
@@ -541,7 +661,7 @@ if (!hasOrders) {
         dayOffset: r > 2 ? 1 : 0,
       });
       consume(t.id);
-      addFuel({ lorryId: t.lorry_id, litres: 22, pricePerLitre: 2.05, odometer: 1000 + r * 90, station: stationOf[p.b] || 'Shell', refType: 'trip', refId: t.id, userId: officeId, date: (t.load_time || '').slice(0, 10) || o.delivery_date });
+      addFuel({ lorryId: t.lorry_id, litres: 22, pricePerLitre: 2.05, odometer: 1000 + r * 90, station: stationOf[p.b] || 'Shell', refType: 'trip', refId: t.id, userId: actorId, date: (t.load_time || '').slice(0, 10) || o.delivery_date });
     }
     run(`UPDATE orders SET status = 'completed', updated_at = ? WHERE id = ?`, new Date().toISOString(), o.id);
     ensureInvoiceForOrder(o.id);
@@ -560,17 +680,18 @@ if (!hasOrders) {
     if (!inv) continue;
     const amt = p.idx === 3 ? round2(Number(inv.amount) * 0.5) : Number(inv.amount);
     const r = run(`INSERT INTO payments (payment_no, receipt_no, customer_id, invoice_id, amount, method,
-                    method_detail, ref_no, paid_at, received_by, status, note)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,'confirmed','')`,
+                    method_detail, ref_no, paid_at, received_by, status, note, branch_id)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,'confirmed','',?)`,
       nextNo('payment', setting('payment_prefix', 'PAY')), nextNo('receipt', setting('receipt_prefix', 'RC')),
       inv.customer_id, inv.id, amt, p.method, p.detail, p.ref,
-      `${addDays(inv.issue_date, 2)}T10:00:00`, officeId);
+      `${addDays(inv.issue_date, 2)}T10:00:00`, actorId, inv.branch_id ?? null);
     if (p.method === 'online') {
-      run(`INSERT INTO online_payments (invoice_id, customer_id, provider, ref, amount, pay_url, status, created_at, paid_at)
-            VALUES (?,?, 'paylink', ?, ?, ?, 'paid', ?, ?)`,
+      run(`INSERT INTO online_payments (invoice_id, customer_id, provider, ref, amount, pay_url, status, created_at, paid_at, branch_id)
+            VALUES (?,?, 'paylink', ?, ?, ?, 'paid', ?, ?, ?)`,
         inv.id, inv.customer_id, `PL${String(r.id).padStart(6, '0')}`, amt,
         `${setting('base_url')}/pay/PL${String(r.id).padStart(6, '0')}`,
-        `${addDays(inv.issue_date, 2)}T09:58:00`, `${addDays(inv.issue_date, 2)}T10:00:00`);
+        `${addDays(inv.issue_date, 2)}T09:58:00`, `${addDays(inv.issue_date, 2)}T10:00:00`,
+        inv.branch_id ?? null);
     }
     recalcInvoice(inv.id);
   }
@@ -693,9 +814,32 @@ const counts = {
   purchases: num(get('SELECT COUNT(*) AS n FROM purchases').n),
 };
 console.log('  Seeded:', Object.entries(counts).map(([k, v]) => `${k}=${v}`).join('  '));
+
+/* Ringkasan login - dijana daripada pangkalan data, bukan ditulis tangan.
+ * Ringkasan yang ditulis tangan cepat menjadi salah: ia pernah masih
+ * menunjuk akaun 'office' yang sudah tidak wujud.
+ *
+ * Hanya akaun yang DICIADAKAN oleh seed menunjukkan kata laluan. Akaun yang
+ * sudah wujud tidak disentuh, jadi kata laluan sebenar tidak diketahui di sini
+ * - pangkalan data hanya menyimpan hash. */
+const demoLogins = all(`SELECT u.username, s.emp_no, u.role, u.can_finance, b.code AS branch
+                       FROM users u
+                       LEFT JOIN staff s ON s.id = u.staff_id
+                       LEFT JOIN branches b ON b.id = u.branch_id
+                       WHERE u.active = 1
+                       ORDER BY (u.role = 'admin') DESC, COALESCE(b.code, ''), u.role, u.username`);
 console.log('\n  Logins:');
-console.log('    admin  / admin123    (full access)');
-console.log('    office / office123   (operations)');
-console.log('    driver / driver123   (driver view)\n');
+for (const u of demoLogins) {
+  const pass = seedPasswords.get(u.username.toLowerCase());
+  const who = u.branch ? `- ${u.branch}` : (u.role === 'admin' ? '- semua cawangan' : '- HQ');
+  const extra = u.role === 'admin' ? 'access penuh'
+    : u.can_finance ? 'kewangan'
+    : u.role === 'driver' ? 'lorri sendiri sahaja'
+    : 'pejabat sahaja';
+  console.log(`    ${u.username.padEnd(10)} / ${(pass || '(kata laluan sedia ada)').padEnd(13)} ${who.padEnd(17)} [${extra}]`);
+}
+console.log('\n  Akaun kakitangan login dengan NOMBOR PEKERJA (3-PPR01); kata laluan');
+console.log('  data contoh ialah nombor yang sama huruf kecil. Tukar semua');
+console.log('  kata laluan ini sebelum sistem digunakan sebenar.\n');
 
 function num(v) { const n = Number(v ?? 0); return Number.isFinite(n) ? n : 0; }

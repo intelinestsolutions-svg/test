@@ -10,7 +10,7 @@ const STATUSES = ['present', 'late', 'absent', 'leave', 'rest'];
 
 export const attendanceRoutes = [
   {
-    method: 'GET', path: '/attendance', handler(ctx) {
+    method: 'GET', path: '/attendance', role: ['admin'], handler(ctx) {
       const { lang } = ctx;
       const T = (k) => esc(ctx.t(k));
       const date = ctx.query.date || today();

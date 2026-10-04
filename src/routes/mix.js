@@ -8,7 +8,7 @@ import { materialCostForMix, round2, ensureItem, stockQty } from '../lib/biz.js'
 
 export const mixRoutes = [
   {
-    method: 'GET', path: '/mix', handler(ctx) {
+    method: 'GET', path: '/mix', role: ['admin', 'lab'], handler(ctx) {
       const { lang } = ctx;
       const T = (k) => esc(ctx.t(k));
       const rows = all(`
@@ -45,7 +45,7 @@ export const mixRoutes = [
     },
   },
   {
-    method: 'GET', path: '/mix/new', handler(ctx) {
+    method: 'GET', path: '/mix/new', role: ['admin', 'lab'], handler(ctx) {
       return html(ctx.res, page(ctx, mixForm(ctx, {
         active: 1, slump_mm: 125, max_agg_mm: 20, min_charge_m3: 1,
         cement_bags: 6, sand_m3: 0.4, agg_m3: 0.8, admix_l: 3,
@@ -53,7 +53,7 @@ export const mixRoutes = [
     },
   },
   {
-    method: 'POST', path: '/mix/new', handler(ctx) {
+    method: 'POST', path: '/mix/new', role: ['admin', 'lab'], handler(ctx) {
       const f = mf(ctx);
       const r = run(`INSERT INTO mix_designs (code, name, grade_mpa, slump_mm, max_agg_mm, cement_bags, sand_m3, agg_m3, admix_l, price_per_m3, min_charge_m3, active)
                      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -65,7 +65,7 @@ export const mixRoutes = [
     },
   },
   {
-    method: 'GET', path: '/mix/:id', handler(ctx) {
+    method: 'GET', path: '/mix/:id', role: ['admin', 'lab'], handler(ctx) {
       const id = int(ctx.params.id);
       const m = get('SELECT * FROM mix_designs WHERE id = ?', id);
       if (!m) { ctx.flashMsg('404', 'err'); return { __redirect: '/mix' }; }
@@ -129,14 +129,14 @@ export const mixRoutes = [
     },
   },
   {
-    method: 'GET', path: '/mix/:id/edit', handler(ctx) {
+    method: 'GET', path: '/mix/:id/edit', role: ['admin', 'lab'], handler(ctx) {
       const m = get('SELECT * FROM mix_designs WHERE id = ?', int(ctx.params.id));
       if (!m) { ctx.flashMsg('404', 'err'); return { __redirect: '/mix' }; }
       return html(ctx.res, page(ctx, mixForm(ctx, m, null)));
     },
   },
   {
-    method: 'POST', path: '/mix/:id/edit', handler(ctx) {
+    method: 'POST', path: '/mix/:id/edit', role: ['admin', 'lab'], handler(ctx) {
       const f = mf(ctx);
       run(`UPDATE mix_designs SET code=?, name=?, grade_mpa=?, slump_mm=?, max_agg_mm=?, cement_bags=?, sand_m3=?,
              agg_m3=?, admix_l=?, price_per_m3=?, min_charge_m3=?, active=? WHERE id=?`,
@@ -147,7 +147,7 @@ export const mixRoutes = [
     },
   },
   {
-    method: 'POST', path: '/mix/:id/delete', handler(ctx) {
+    method: 'POST', path: '/mix/:id/delete', role: ['admin', 'lab'], handler(ctx) {
       run('UPDATE mix_designs SET active = 0 WHERE id = ?', int(ctx.params.id));
       ctx.flashMsg(ctx.t('a.deleted'));
       return { __redirect: '/mix' };

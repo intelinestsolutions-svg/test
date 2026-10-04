@@ -51,8 +51,10 @@ export const orderRoutes = [
         SELECT COALESCE(SUM(o.amount),0) AS amt, COALESCE(SUM(o.volume_m3),0) AS m3
         FROM orders o JOIN customers c ON c.id = o.customer_id ${clause}`, ...args);
 
-      const customers = all('SELECT id, name FROM customers WHERE active = 1 ORDER BY name');
-      const mixList = activeMixes();
+      const cb = ctx.bcond('c');
+      const customers = all(`SELECT id, name FROM customers c WHERE active = 1${cb ? ` AND ${cb.clause}` : ''} ORDER BY name`,
+        ...(cb ? cb.params : []));
+      const mixList = activeMixes(ctx.branchId);
 
       const filters = filterBar(ctx, {
         action: '/orders',
@@ -95,7 +97,8 @@ export const orderRoutes = [
 
       return html(ctx.res, page(ctx, {
         title: T('ord.title'),
-        actions: linkBtn(T('ord.new'), '/orders/new', { ic: 'plus', variant: 'primary' }),
+        // Pemandu hanya delivering - mereka tidak membuka pesanan baharu.
+        actions: ctx.user.role === 'driver' ? '' : linkBtn(T('ord.new'), '/orders/new', { ic: 'plus', variant: 'primary' }),
         body,
       }));
     },
@@ -118,7 +121,7 @@ export const orderRoutes = [
 
   /* ============ NEW ============ */
   {
-    method: 'GET', path: '/orders/new', handler(ctx) {
+    method: 'GET', path: '/orders/new', role: ['admin', 'office'], handler(ctx) {
       const v = orderForm(ctx, {
         order_no: nextNo('order', setting('order_prefix', 'SO')),
         order_date: today(),
@@ -132,7 +135,7 @@ export const orderRoutes = [
     },
   },
   {
-    method: 'POST', path: '/orders/new', handler(ctx) {
+    method: 'POST', path: '/orders/new', role: ['admin', 'office'], handler(ctx) {
       const f = formData(ctx);
       const mix = mixByCode(f.mix_code);
       const t = calcOrder(f);
@@ -328,9 +331,14 @@ function formData(ctx) {
 function orderForm(ctx, o, err) {
   const { lang } = ctx;
   const T = (k) => esc(ctx.t(k));
-  const customers = all('SELECT * FROM customers WHERE active = 1 ORDER BY name');
-  const sites = all('SELECT * FROM sites ORDER BY name');
-  const mixList = activeMixes();
+  // Pelanggan & tapak dari cawangan yang sedang dilihat sahaja.
+  const ecb = ctx.bcond('c');
+  const customers = all(`SELECT * FROM customers c WHERE active = 1${ecb ? ` AND ${ecb.clause}` : ''} ORDER BY name`,
+    ...(ecb ? ecb.params : []));
+  const esb = ctx.bcond('s');
+  const sites = all(`SELECT * FROM sites s WHERE 1=1${esb ? ` AND ${esb.clause}` : ''} ORDER BY name`,
+    ...(esb ? esb.params : []));
+  const mixList = activeMixes(ctx.branchId);
   const isEdit = !!o.id;
   const siteOpts = [{ value: '', label: '—' }, ...sites.map((s) => ({ value: s.id, label: `${s.name || s.address} (${s.area || ''})` }))];
 

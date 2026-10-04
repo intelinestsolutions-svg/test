@@ -5,8 +5,25 @@ import { all, get, run, tx, nextNo, setting, setSetting, nowLocal, today } from 
 import { num, today as tdate, addDays, daysBetween } from './http.js';
 
 /* ---------------- catalogue helpers ---------------- */
-export const mixByCode = (code) => (code ? get('SELECT * FROM mix_designs WHERE code = ?', code) : null);
-export const activeMixes = () => all('SELECT * FROM mix_designs WHERE active = 1 ORDER BY code');
+/*
+ * Reka bentuk konkrit. Setiap cawangan boleh ada reka bentuk sendiri,
+ * tetapi reka bentuk standard syarikat (branch_id NULL) sentiasa kelihatan
+ * kepada semua - jadi hanya reka designs KHAS cawangan lain yang disembunyikan.
+ */
+const mixScope = (alias, branchId) => {
+  const col = alias ? `${alias}.branch_id` : 'branch_id';
+  if (!branchId || branchId === 'all') return { sql: '', params: [] };
+  return { sql: ` AND (${col} = ? OR ${col} IS NULL)`, params: [Number(branchId)] };
+};
+export function mixByCode(code, branchId = null) {
+  if (!code) return null;
+  const s = mixScope('m', branchId);
+  return get(`SELECT m.* FROM mix_designs m WHERE m.code = ?${s.sql}`, code, ...s.params);
+}
+export function activeMixes(branchId = null) {
+  const s = mixScope('m', branchId);
+  return all(`SELECT m.* FROM mix_designs m WHERE m.active = 1${s.sql} ORDER BY m.code`, ...s.params);
+}
 export const activeItems = (cat = null) =>
   all(`SELECT * FROM items WHERE active = 1 ${cat ? 'AND category = ?' : ''} ORDER BY category, name`, ...(cat ? [cat] : []));
 
@@ -190,19 +207,22 @@ export function completeOrder(orderId) {
 export function ensureInvoiceForOrder(orderId) {
   const o = get('SELECT * FROM orders WHERE id = ?', orderId);
   if (!o) return null;
+  // Invois mewarisi cawangan pesanan - tiada cawangan bermakna ia tidak
+  // kelihatan kepada mana-mana kakitangan cawangan.
+  const bid = o.branch_id ?? null;
   const exist = get('SELECT * FROM invoices WHERE order_id = ?', orderId);
   if (exist) {
-    run(`UPDATE invoices SET amount = ?, due_date = ? WHERE id = ?`,
-      num(o.amount), addDays(o.delivery_date, num(setting('default_payment_terms'), 0)), exist.id);
-    return exist;
+    run(`UPDATE invoices SET amount = ?, due_date = ?, branch_id = COALESCE(branch_id, ?) WHERE id = ?`,
+      num(o.amount), addDays(o.delivery_date, num(setting('default_payment_terms'), 0)), bid, exist.id);
+    return get('SELECT * FROM invoices WHERE id = ?', exist.id);
   }
   if (num(o.amount) <= 0) return null;
   const s = get('SELECT payment_terms_days FROM customers WHERE id = ?', o.customer_id);
   const terms = s ? num(s.payment_terms_days) : 0;
-  const inv = run(`INSERT INTO invoices (invoice_no, order_id, customer_id, issue_date, due_date, amount, sst_amount, amount_paid, status)
-                   VALUES (?,?,?,?,?,?,?,0,'unpaid')`,
+  const inv = run(`INSERT INTO invoices (invoice_no, order_id, customer_id, issue_date, due_date, amount, sst_amount, amount_paid, status, branch_id)
+                   VALUES (?,?,?,?,?,?,?,0,'unpaid',?)`,
     nextNo('invoice', setting('invoice_prefix', 'INV')), orderId, o.customer_id, tdate(),
-    addDays(o.delivery_date, terms), num(o.amount), num(o.amount) - num(o.subtotal), );
+    addDays(o.delivery_date, terms), num(o.amount), num(o.amount) - num(o.subtotal), bid);
   return get('SELECT * FROM invoices WHERE id = ?', inv.id);
 }
 
@@ -226,11 +246,17 @@ export function customerBalance(customerId) {
   return round2(r?.bal);
 }
 
-export function agingBuckets(asOf = tdate()) {
+/**
+ * Kumpulan umur hutang. `branchId` men'secut kepada satu cawangan;
+ * 'all'/null bermaksud semua cawangan (admin).
+ */
+export function agingBuckets(asOf = tdate(), branchId = null) {
+  const b0 = (!branchId || branchId === 'all') ? { sql: '', params: [] } : { sql: ' AND i.branch_id = ?', params: [Number(branchId)] };
   const rows = all(`SELECT i.id, i.invoice_no, i.due_date, (i.amount - i.amount_paid) AS bal,
                            c.id AS cid, c.name AS cname, c.code AS ccode
                     FROM invoices i JOIN customers c ON c.id = i.customer_id
-                    WHERE i.status != 'cancelled' AND (i.amount - i.amount_paid) > 0.009`);
+                    WHERE i.status != 'cancelled' AND (i.amount - i.amount_paid) > 0.009${b0.sql}`,
+    ...b0.params);
   const b = { current: [], d1: [], d2: [], d3: [], d4: [] };
   for (const r of rows) {
     const overdue = daysBetween(r.due_date || asOf, asOf);
