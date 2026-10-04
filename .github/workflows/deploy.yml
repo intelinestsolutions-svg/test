@@ -1,0 +1,96 @@
+name: Deploy to Hostinger
+
+# Memuat naik kod ke test.prostudio.my melalui FTP.
+#
+# Aplikasi ini TIDAK perlukan `npm install`: ia hanya menggunakan modul
+# terbina dalam Node (node:sqlite, node:http). Jadi muat naik fail
+# sumber sudah mencukupi - tiada native module untuk dibina.
+#
+# Yang TIDAK disentuh: data/ (pangkalan data SQLite yang sedang hidup).
+# Fail itu tidak pernah dalam git, jadi ia tidak akan dihantar, dan
+# `--delete` hanya dipakai dalam src/, public/ dan scripts/.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Pentadbir hanya. Repo ini peribadi dan mengandungi kod perniagaan.
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets are present
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+          FTP_PORT: ${{ secrets.FTP_PORT }}
+        run: |
+          set -eu
+          missing=''
+          for v in DEPLOY_PATH FTP_HOST FTP_USER FTP_PASS FTP_PORT; do
+            if [ -z "${!v}" ]; then missing="$missing $v"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Secret(s) tidak ditetapkan:$missing"
+            exit 1
+          fi
+          echo "Semua rahsia tersedia. FTP_HOST=$FTP_HOST port=$FTP_PORT"
+
+      - name: Upload source to ${{ secrets.DEPLOY_PATH }}
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+          FTP_PORT: ${{ secrets.FTP_PORT }}
+        run: |
+          set -eu
+          # Jangan cetak rahsia. Arahan lftp ditulis ke fail supaya kata
+          # laluan tidak kelihatan dalam senarai proses.
+          umask 077
+          lftp_cmd="$(mktemp)"
+          {
+            echo "set cmd:fail-exit yes;"
+            echo "set ssl:verify-certificate false;"
+            echo "set ftp:ssl-allow no;"
+            echo "set net:max-retries 3;"
+            echo "set net:timeout 15;"
+            # Port mesti ditetapkan sebelum 'open' - lftp tidak menerima
+            # port sebagai argumen pada arahan open.
+            printf 'set ftp:port %s;\n' "${FTP_PORT:-21}"
+            printf 'open -u "%s","%s" "%s"\n' "$FTP_USER" "$FTP_PASS" "$FTP_HOST"
+            # Hanya direktori kod. data/ sengaja tidak disebut di sini.
+            printf 'mirror --reverse --delete --verbose src/ "%s/src/"\n' "$DEPLOY_PATH"
+            printf 'mirror --reverse --delete --verbose public/ "%s/public/"\n' "$DEPLOY_PATH"
+            printf 'mirror --reverse --delete --verbose scripts/ "%s/scripts/"\n' "$DEPLOY_PATH"
+            printf 'put server.js -o "%s/server.js"\n' "$DEPLOY_PATH"
+            printf 'put package.json -o "%s/package.json"\n' "$DEPLOY_PATH"
+            echo "bye;"
+          } > "$lftp_cmd"
+
+          lftp -f "$lftp_cmd"
+          rm -f "$lftp_cmd"
+
+      - name: Verify the running app
+        run: |
+          set -eu
+          # Awangi ini hanya menyemak aplikasi HTTP - ia tidak
+          # memerlukan sebarang rahsia dan tidak menyentuh pangkalan data.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://test.prostudio.my/login)
+          echo "https://test.prostudio.my/login -> HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::warning::Halaman login tidak kembali 200 selepas muat naik."
+            echo "::warning::Jika proses Node tidak dimulakan semula, mulakan semula"
+            echo "::warning::melalui hPanel (Advanced -> Node.js)."
+          fi
