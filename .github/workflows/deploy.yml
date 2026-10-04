@@ -28,6 +28,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # lftp TIDAK termasuk dalam imej ubuntu-latest - Tanpanya langkah
+      # muat naik akan gagal dengan "lftp: command not found".
+      - name: Install lftp
+        run: |
+          set -eu
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lftp
+          lftp --version | head -1
+
       - name: Check required secrets are present
         env:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
