@@ -39,7 +39,7 @@ function loginPage(ctx, error = '', next = '') {
       <span>${lang === 'bm' ? 'Hubungi pentadbir untuk akaun.' : 'Contact the administrator for an account.'}</span>
     </div>
   </div>
-  <p class="login-foot">Concrete &amp; Lorry System · Sabah, Malaysia · © 2026 Kotamix Concrete</p>
+  <p class="login-foot">Concrete &amp; Lorry System · Sabah, Malaysia · © 2026 Kotamix Concrete<br>Dibangunkan oleh <b>Studio Pro</b></p>
 </div>
 </body>
 </html>`;
