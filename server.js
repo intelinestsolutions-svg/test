@@ -103,6 +103,11 @@ const server = createServer(async (req, res) => {
   // ditetapkan sebelum apa-apa penulisan supaya ia sampai pada
   // modul terbina dalam pun memuatkannya, bukan sahaja halaman dinamik.
   res.setHeader('X-App-Build', APP_BUILD);
+  // Header keselamatan asas - label MIME tegas + rujukan dalam tapak sahaja.
+  // (CSP tidak dipakai kerana halaman cetak dan portal perlu skrip gaya
+  // inline; nosniff + referrer cukup tanpa merosakkan paparan.)
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
   const cookies = parseCookies(req);
@@ -270,10 +275,12 @@ const server = createServer(async (req, res) => {
     if (res.headersSent) return;
     const u = userForToken(cookies.token);
     if (!u) return text(res, 'Internal error', 500);
+    // Jangan hantar stack trace ke pelayar - ia membocorkan struktur fail
+    // dalaman kepada pengguna yang log masuk. Log penuh kekal di pelayan.
     return html(res, `<!doctype html><meta charset="utf-8"><title>Error</title>
       <body style="font-family:system-ui;padding:3rem">
-      <h1>Ralat / Error</h1><pre style="background:#f6f6f6;padding:1rem;border-radius:8px;overflow:auto">${
-        String(err.stack || err.message).replace(/[<&]/g, (c) => (c === '<' ? '&lt;' : '&amp;'))
+      <h1>Ralat / Error</h1><pre style="background:#f6f6f6;padding:1rem;border-radius:8px">${
+        String(err.message || 'Internal error').replace(/[<&]/g, (c) => (c === '<' ? '&lt;' : '&amp;'))
       }</pre><p><a href="/dashboard">Kembali / Back</a></p></body>`, 500);
   }
 });

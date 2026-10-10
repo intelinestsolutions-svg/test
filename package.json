@@ -2,6 +2,7 @@
   "name": "kotamix-concrete",
   "version": "1.0.0",
   "private": true,
+  "license": "UNLICENSED",
   "description": "Concrete lorry operations system for Sabah - orders, deliveries, payments, staff, fleet, fuel and inventory",
   "type": "module",
   "main": "server.js",
