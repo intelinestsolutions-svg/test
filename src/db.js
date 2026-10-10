@@ -391,6 +391,10 @@ for (const [k, v] of Object.entries({
 })) {
   run(`UPDATE settings SET value = ? WHERE key = ? AND (value IS NULL OR value = '')`, v, k);
 }
+// Polisi data: backup hanya melalui aplikasi ini, disimpan ke server pemilik.
+// Buang sebarang repositori/token GitHub lama yang pernah disimpan - ia adalah
+// laluan data keluar ke pihak ketiga yang tidak lagi dibenarkan.
+run(`DELETE FROM settings WHERE key LIKE 'github_%'`);
 
 /* ------------------------------------------------------------------ *
  * Nombor pekerja (emp_no)

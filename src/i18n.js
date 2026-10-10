@@ -633,14 +633,6 @@ const DICT = {
   'set.restoreProgress': ['Memuat naik...', 'Uploading...'],
   'set.restoreInvalid': ['Fail bukan sandaran yang sah (perlu fail .db dengan jadual teras).', 'Not a valid backup file (needs a .db with core tables).'],
   'set.restoreDone': ['Sandaran dipulihkan. RESTART aplikasi sekarang supaya data baharu aktif.', 'Backup restored. RESTART the app now so the restored data is active.'],
-  'set.github': ['GitHub', 'GitHub'],
-  'set.ghRepo': ['Repositori (owner/nama)', 'Repository (owner/name)'],
-  'set.ghBranch': ['Branch', 'Branch'],
-  'set.ghToken': ['Token Akses', 'Access Token'],
-  'set.ghTokenHint': ['Token halus dengan akses tulis ke repo ini sahaja', 'Fine-grained token with write access to this repo only'],
-  'set.ghPush': ['Hantar Sandaran ke GitHub', 'Push Backup to GitHub'],
-  'set.ghMissing': ['Lengkapkan repositori dan token dahulu.', 'Fill in the repository and token first.'],
-  'set.ghPrivateWarn': ['WAJIB repo peribadi (private) — sandaran mengandungi data pelanggan, bank dan kata laluan.', 'MUST be a private repo — backups contain customer, bank and password data.'],
 
   /* ---- statuses ---- */
   'ord.status.draft': ['Draf', 'Draft'],

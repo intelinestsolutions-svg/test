@@ -23,7 +23,7 @@ const PAYROLL_KEYS = [
 ];
 const PREFIX_KEYS = ['invoice_prefix', 'order_prefix', 'dn_prefix', 'trip_prefix', 'payment_prefix', 'receipt_prefix'];
 
-const TAB_KEYS = { company: COMPANY_KEYS, finance: FINANCE_KEYS, bank: BANK_KEYS, allow: ALLOW_KEYS, payroll: PAYROLL_KEYS, numbering: PREFIX_KEYS, users: null, data: null, github: null };
+const TAB_KEYS = { company: COMPANY_KEYS, finance: FINANCE_KEYS, bank: BANK_KEYS, allow: ALLOW_KEYS, payroll: PAYROLL_KEYS, numbering: PREFIX_KEYS, users: null, data: null };
 
 export const settingsRoutes = [
   {
@@ -45,7 +45,6 @@ export const settingsRoutes = [
         ['/settings?tab=numbering', T('set.numbering'), null],
         ['/settings?tab=users', T('set.users'), null],
         ['/settings?tab=data', T('set.data'), null],
-        ['/settings?tab=github', T('set.github'), null],
       ], `/settings?tab=${tab}`);
 
       let panel = '';
@@ -183,17 +182,6 @@ export const settingsRoutes = [
               <div class="form-actions span-2"><button class="btn btn-primary" type="submit">${T('set.restoreBtn')}</button></div>
             </form>
           </div>`);
-      } else if (tab === 'github') {
-        panel = card(cardHead(T('set.github')), `
-          <p class="tiny">${T('set.ghPrivateWarn')}</p>
-          <form method="post" action="/settings/github-save" class="form-grid">
-            ${f(T('set.ghRepo'), 'github_repo', s.github_repo || '', { placeholder: 'owner/kotamix-backups', required: true })}
-            ${f(T('set.ghBranch'), 'github_branch', s.github_branch || 'main')}
-            ${f(T('set.ghToken'), 'github_token', s.github_token || '', { type: 'password', hint: T('set.ghTokenHint') })}
-            <div class="form-actions span-2">${submitBtn(T('a.save'), { ic: 'check' })}</div>
-          </form>
-          <form method="post" action="/settings/github-push" onsubmit="return confirm('${T('a.confirm')}?')">
-            <button class="btn btn-primary" type="submit">${T('set.ghPush')}</button></form>`);
       }
 
       // Skrip muat naik fail sandaran (.db mentah) ke /settings/restore.
@@ -303,57 +291,6 @@ document.getElementById('restoreForm').addEventListener('submit', async (e) => {
     },
   },
   {
-    method: 'POST', path: '/settings/github-save', role: ['admin'], handler(ctx) {
-      for (const k of ['github_repo', 'github_branch', 'github_token']) {
-        setSetting(k, str(ctx.body[k]).trim());
-      }
-      if (!setting('github_branch')) setSetting('github_branch', 'main');
-      ctx.flashMsg(ctx.t('a.saved'));
-      return { __redirect: '/settings?tab=github' };
-    },
-  },
-  {
-    method: 'POST', path: '/settings/github-push', role: ['admin'], handler(ctx) {
-      const repo = (setting('github_repo') || '').trim();
-      const branch = (setting('github_branch') || 'main').trim() || 'main';
-      const token = (setting('github_token') || '').trim();
-      if (!repo.includes('/') || !token) {
-        ctx.flashMsg(ctx.t('set.ghMissing'), 'err');
-        return { __redirect: '/settings?tab=github' };
-      }
-      try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch {}
-      const bytes = readFileSync(join(DATA_DIR, 'clsbiz.db'));
-      const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 12);
-      const path = `backups/clsbiz-${stamp}.db`;
-      return fetch(`https://api.github.com/repos/${repo}/contents/${path}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/vnd.github+json',
-          'User-Agent': 'kotamix-concrete',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: `kotamix backup ${stamp}`,
-          content: bytes.toString('base64'),
-          branch,
-        }),
-      }).then(async (r) => {
-        if (r.status === 201 || r.status === 200) {
-          setSetting('github_last', new Date().toISOString());
-          ctx.flashMsg(`${ctx.t('a.saved')}: ${path}`);
-        } else {
-          const j = await r.json().catch(() => ({}));
-          ctx.flashMsg(`GitHub ${r.status}: ${j.message || 'error'}`, 'err');
-        }
-        return { __redirect: '/settings?tab=github' };
-      }).catch((e) => {
-        ctx.flashMsg(`GitHub: ${e.message}`, 'err');
-        return { __redirect: '/settings?tab=github' };
-      });
-    },
-  },
-  {
     method: 'POST', path: '/settings/restore', role: ['admin'], handler(ctx) {
       const raw = ctx.body && ctx.body.__raw;
       if (!raw || !Buffer.isBuffer(raw) || raw.length < 512) {
@@ -388,7 +325,7 @@ document.getElementById('restoreForm').addEventListener('submit', async (e) => {
   },
   {
     // Generic tab saver — must stay LAST: /settings/:tab would shadow the
-    // specific POST routes above (users, password, github-*, restore).
+    // specific POST routes above (users, password, restore).
     method: 'POST', path: '/settings/:tab', role: ['admin'], handler(ctx) {
       const tab = ctx.params.tab;
       const keys = TAB_KEYS[tab];
