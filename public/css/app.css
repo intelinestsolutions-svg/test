@@ -484,14 +484,12 @@ input[type=checkbox] { width: 17px; height: 17px; min-height: 0; accent-color: v
 .login-brand .brand-mark.big { width: 46px; height: 46px; }
 .login-brand h1 { font-size: 19px; }
 .login-brand p { margin: 0; font-size: 12.5px; opacity: .85; width: 100%; }
-.login-demo code { display: inline-block; font-family: var(--mono); font-size: 12px; }
 .login-brand .brand-text { font-size: 17px; }
 .login-form { display: grid; gap: 11px; }
 .login-demo {
   margin-top: 14px; padding: 11px 12px; background: var(--surface-2);
   border: 1px dashed var(--line-2); border-radius: var(--r); font-size: 12.5px; color: var(--ink-2);
 }
-.login-demo b { color: var(--ink); }
 .login-foot { margin-top: 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .pay-head { text-align: center; margin-bottom: 14px; }
 .pay-big { font-size: 40px; line-height: 1; margin-bottom: 6px; }
@@ -528,6 +526,16 @@ input[type=checkbox] { width: 17px; height: 17px; min-height: 0; accent-color: v
 .sheet .muted { color: #555; }
 
 .doc-top { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+
+/* Logo kepala dokumen - saiz tetap ikut jenis kertas supaya tidak herot. */
+.doc-logo { display: block; width: auto; object-fit: contain; }
+.sheet .doc-logo { height: 34px; margin-bottom: 6px; }
+.print-sheets.a5 .doc-logo { height: 42px; }
+.print-sheets.a4 .doc-logo { height: 50px; }
+.ps-head .doc-logo { height: 30px; margin-bottom: 4px; }
+/* Penjuru jam lembur harian (attendance) - B = biasa, P = cuti umum. */
+.ot-form { display: inline-flex; align-items: center; gap: 3px; }
+.ot-inp { width: 46px; padding: 3px 3px; font-size: 11.5px; border: 1px solid var(--line); border-radius: 4px; text-align: center; }
 .doc-parties {
   display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
   margin: 12px 0; padding: 9px 0; border-top: 1px solid #ccc; border-bottom: 1px solid #ccc;

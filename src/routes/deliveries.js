@@ -29,7 +29,7 @@ export const deliveryRoutes = [
       if (q.driver) { where.push('t.driver_id = ?'); args.push(int(q.driver)); }
       if (q.status) { where.push('t.status = ?'); args.push(q.status); }
       if (q.q) {
-        where.push('(t.trip_no LIKE ? OR t.dn_no LIKE ? OR o.order_no LIKE ? OR c.name LIKE ? OR s.name LIKE ?)');
+        where.push('(t.trip_no LIKE ? OR t.dn_no LIKE ? OR o.order_no LIKE ? OR c.name LIKE ? OR st.name LIKE ?)');
         const s = `%${q.q}%`; args.push(s, s, s, s, s);
       }
       const bc = ctx.bcond('t');
@@ -52,12 +52,14 @@ export const deliveryRoutes = [
         LIMIT ? OFFSET ?`, ...args, LIMIT, offset);
       const total = num(get(`
         SELECT COUNT(*) AS n FROM trips t JOIN orders o ON o.id = t.order_id
-        JOIN customers c ON c.id = o.customer_id ${clause}`, ...args)?.n);
+        JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN staff st ON st.id = t.driver_id ${clause}`, ...args)?.n);
 
       const sum = get(`
         SELECT COALESCE(SUM(t.batch_m3),0) AS batch, COALESCE(SUM(t.delivered_m3),0) AS deliv,
                COALESCE(SUM(t.returned_m3),0) AS ret
-        FROM trips t JOIN orders o ON o.id = t.order_id JOIN customers c ON c.id = o.customer_id ${clause}`, ...args);
+        FROM trips t JOIN orders o ON o.id = t.order_id JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN staff st ON st.id = t.driver_id ${clause}`, ...args);
 
       const lorries = all('SELECT * FROM lorries WHERE active = 1 ORDER BY code');
       const drivers = all(`SELECT * FROM staff WHERE role='driver' AND status='active' ORDER BY name`);
@@ -84,7 +86,8 @@ export const deliveryRoutes = [
         { key: 'delivered_m3', label: T('dlv.deliveredQty'), align: 'right', cell: (r) => `<b>${qty(r.delivered_m3)}</b>${num(r.returned_m3) ? `<div class="sub tiny">−${qty(r.returned_m3)}</div>` : ''}` },
         { key: 'status', label: T('a.status'), cell: (r) => statusBadge(ctx, 'trip.status', r.status) },
         {
-          key: 'act', label: '', align: 'right', cell: (r) => quickAction(ctx, r),
+          key: 'act', label: '', align: 'right', cell: (r) =>
+            quickAction(ctx, r) + linkBtn(T('a.print'), `/print/dn/${r.id}`, { ic: 'print', cls: 'sm', variant: 'link' }),
         },
       ];
 

@@ -111,12 +111,23 @@ CREATE TABLE IF NOT EXISTS staff (
   note            TEXT,
   created_at      TEXT
 );
+-- Overtime rates per staff (RM/hour). 0 = auto-derive from salary/26/8.
+CREATE TABLE IF NOT EXISTS staff_ot_rates (
+  staff_id    INTEGER PRIMARY KEY REFERENCES staff(id) ON DELETE CASCADE,
+  normal_rate REAL DEFAULT 0,   -- 1.5x base hourly
+  rest_rate   REAL DEFAULT 0,   -- 2.0x base hourly
+  ph_rate     REAL DEFAULT 0,   -- 3.0x base hourly
+  updated_at  TEXT
+);
 CREATE TABLE IF NOT EXISTS attendance (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   staff_id   INTEGER NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
   work_date  TEXT NOT NULL,
   in_time    TEXT, out_time TEXT,
   status     TEXT DEFAULT 'present',               -- present|late|absent|leave|rest
+  ot_normal  REAL DEFAULT 0,                       -- jam lembur biasa (1.5x)
+  ot_rest    REAL DEFAULT 0,                       -- jam lembur hari rehat (2.0x)
+  ot_ph      REAL DEFAULT 0,                       -- jam lembur cuti am (3.0x)
   note       TEXT,
   UNIQUE(staff_id, work_date)
 );
@@ -365,6 +376,21 @@ addColumn('users', 'last_login', 'last_login TEXT');
 addColumn('lorries', 'note', 'note TEXT');
 addColumn('trips', 'remark', 'remark TEXT');
 addColumn('items', 'location', 'location TEXT');
+addColumn('staff', 'annual_leave', 'annual_leave REAL DEFAULT 0');
+// Lembur: kolum jam OT ditambah lewat (attendance lama tidak ada) -
+// migrasi supaya DB sedia ada boleh guna payroll OT tanpa bina semula.
+addColumn('attendance', 'ot_normal', 'ot_normal REAL DEFAULT 0');
+addColumn('attendance', 'ot_rest', 'ot_rest REAL DEFAULT 0');
+addColumn('attendance', 'ot_ph', 'ot_ph REAL DEFAULT 0');
+// Baiki tetapan berkanun yang kosong/NULL (DB pra-2026): kadar & had
+// SOCSO/EIS/EPF terkini dipakai walaupun tanpa edit manual di Tetapan.
+for (const [k, v] of Object.entries({
+  socso_ceiling: '6000', socso_employer_rate: '0.0175', socso_employee_rate: '0.005',
+  eis_ceiling: '6000', eis_employer_rate: '0.002', eis_employee_rate: '0.002',
+  epf_ceiling: '0',
+})) {
+  run(`UPDATE settings SET value = ? WHERE key = ? AND (value IS NULL OR value = '')`, v, k);
+}
 
 /* ------------------------------------------------------------------ *
  * Nombor pekerja (emp_no)
@@ -591,6 +617,19 @@ export const DEFAULT_SETTINGS = {
   driver_daily_allowance: '60',
   driver_trip_allowance: '25',
   loader_trip_allowance: '15',
+  /* Statutory contributions (Malaysia 2025/2026 rates).
+   * SOCSO/EIS wage ceiling: RM 6,000/month (raised from RM 5,000,
+   * effective 1 Oct 2024). EPF: no ceiling.
+   * Kadar EPF dikira automatik dalam biz.js (majikan 13% ≤ RM5,000 /
+   * 12% > RM5,000; pekerja 11%) dan tidak boleh disunting di sini.
+   * Dibolehkan disunting di Settings → Payroll. */
+  socso_ceiling: '6000',
+  socso_employer_rate: '0.0175',   // 1.75%
+  socso_employee_rate: '0.005',    // 0.5%
+  eis_ceiling: '6000',
+  eis_employer_rate: '0.002',      // 0.2%
+  eis_employee_rate: '0.002',      // 0.2%
+  epf_ceiling: '0',                // 0 = no ceiling (EPF has no cap)
 };
 
 export function setting(key, fallback = '') {

@@ -140,7 +140,9 @@ const server = createServer(async (req, res) => {
     paramNames.forEach((n, i) => { params[n] = decodeURIComponent(matchResult[i + 1] ?? ''); });
 
     const user = userForToken(cookies.token);
-    const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await parseBody(req) : {};
+    const body = ['POST', 'PUT', 'PATCH'].includes(req.method)
+      ? await parseBody(req, pathname === '/settings/restore' ? 100 * 1024 * 1024 : 3 * 1024 * 1024)
+      : {};
 
     const ctx = {
       req, res, user, params,

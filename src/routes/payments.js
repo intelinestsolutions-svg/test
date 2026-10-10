@@ -71,6 +71,9 @@ export const paymentRoutes = [
         { key: 'amount', label: T('a.amount'), align: 'right', cell: (r) => `<b>${esc(money(r.amount, lang))}</b>` },
         { key: 'by_name', label: T('pay.receivedBy'), cell: (r) => esc(r.by_name || '—') },
         { key: 'status', label: T('a.status'), cell: (r) => statusBadge(ctx, 'pay.status', r.status) },
+        { key: 'act', label: '', align: 'right', cell: (r) =>
+          linkBtn(T('a.print'), `/print/receipt/${r.id}`, { ic: 'print', cls: 'sm', variant: 'link' }) +
+          `<a class="btn btn-ghost sm" href="/payments/${r.id}">${T('a.view')}</a>` },
       ], rows, { emptyMsg: T('a.noDataHint') }))}`;
 
       return html(ctx.res, page(ctx, { title: T('pay.title'), body }));

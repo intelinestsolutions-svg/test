@@ -46,6 +46,16 @@ export const attendanceRoutes = [
           { key: 'in', label: T('att.in'), cell: (r) => esc(r.a?.in_time || '—') },
           { key: 'out', label: T('att.out'), cell: (r) => esc(r.a?.out_time || '—') },
           {
+            key: 'ot', label: T('att.ot'), cell: (r) => `
+              <form method="post" action="/attendance/ot" class="ot-form">
+                <input type="hidden" name="staff_id" value="${r.id}">
+                <input type="hidden" name="work_date" value="${esc(date)}">
+                <input class="ot-inp" type="number" name="ot_normal" value="${r.a?.ot_normal ? num(r.a?.ot_normal) : ''}" min="0" step="0.5" title="${T('att.otNormal')}">
+                <input class="ot-inp" type="number" name="ot_ph" value="${r.a?.ot_ph ? num(r.a?.ot_ph) : ''}" min="0" step="0.5" title="${T('att.otPh')}">
+                <button class="btn btn-ghost xs" title="${T('a.save')}">✓</button>
+              </form>`,
+          },
+          {
             key: 'act', label: '', align: 'right', cell: (r) => STATUSES.map((s) => `
               <form method="post" action="/attendance" class="inline-form">
                 <input type="hidden" name="staff_id" value="${r.id}">
@@ -92,6 +102,19 @@ export const attendanceRoutes = [
              out_time = COALESCE(NULLIF(excluded.out_time,''), attendance.out_time)`,
         staffId, date, str(ctx.body.in_time), str(ctx.body.out_time), status);
       return { __redirect: str(ctx.body.back) || `/attendance?date=${date}` };
+    },
+  },
+  {
+    method: 'POST', path: '/attendance/ot', handler(ctx) {
+      const staffId = int(ctx.body.staff_id);
+      const date = str(ctx.body.work_date) || today();
+      // Simpan jam lembur sahaja; status & waktu sedia ada tidak disentuh.
+      run(`INSERT INTO attendance (staff_id, work_date, ot_normal, ot_rest, ot_ph, status, note)
+           VALUES (?,?,?,?,?,'present','')
+           ON CONFLICT(staff_id, work_date) DO UPDATE SET
+             ot_normal = excluded.ot_normal, ot_rest = excluded.ot_rest, ot_ph = excluded.ot_ph`,
+        staffId, date, num(ctx.body.ot_normal, 0), num(ctx.body.ot_rest, 0), num(ctx.body.ot_ph, 0));
+      return { __redirect: `/attendance?date=${date}` };
     },
   },
   {

@@ -28,27 +28,26 @@ That is the whole list. There is nothing to `npm install`.
 ```bash
 cd ConcreteLorrySabah
 
-# 1. Load the demo data (settings, staff, lorries, stock, customers, orders...)
-npm run seed
-
-# 2. Start the server
+# The first run creates an empty database with a single admin
+# account (admin / admin123). Then start the server:
 npm start
 ```
 
 Open <http://localhost:3000> and sign in.
 
-### Demo logins
+### Logins
+
+A fresh install ships with one admin account only:
 
 | Username | Password | Role   | What they can do |
 |----------|----------|--------|------------------|
-| `admin`  | `admin123`  | admin  | Everything, including settings, users, backup and reset |
-| `office` | `office123` | office | Day-to-day operations: orders, deliveries, invoicing, payments, purchasing |
-| `driver` | `driver123` | driver | Deliveries and trip actions only |
+| `admin`  | `admin123`  | admin  | Everything, including settings, users, backup and restore |
 
-Two more driver accounts exist for scheduling demos: `driver2` / `driver2` and
-`driver3` / `driver3`.
+> **Change the admin password before going live.** Sign in as `admin` →
+> **Settings → Users**.
 
-> **Change these before going live.** Sign in as `admin` → **Settings → Users**.
+For trying the app, `npm run seed` (CLI only) adds office and driver demo
+accounts (`office`/`office123`, `driver`/`driver123`, `driver2`, `driver3`).
 
 ### Configuration
 
@@ -158,10 +157,20 @@ doing.
 
 ### 7. People — `/staff`, `/attendance`, `/payroll`
 
-Record attendance per day (or mark the whole month in one go). The payroll
-sheet for a month calculates: days worked, trips, m³ delivered, trip allowance,
-attendance allowance and overtime, against each staff member's rate — with gross,
-deductions, tax, EPF/SOCSO and net pay. Payslips print one per person.
+Record attendance per day (or mark the whole month in one go), including
+overtime hours in two categories — **OT Biasa** (1.5×) and **OT Cuti Umum**
+(3.0×). Each staff member has an annual leave allowance and, optionally, fixed
+per-hour OT rates (leave them 0 to auto-calculate from the monthly salary:
+salary ÷ 26 ÷ 8 × the OT multiple).
+
+The payroll sheet for a month calculates: days worked, trips, m³ delivered,
+trip allowance, attendance allowance and overtime — with gross, employee
+statutory deductions (SOCSO 0.5%, EIS 0.2%, EPF 11%) and net pay. EPF is
+calculated automatically from the current KWSP schedule (employer 13% for
+salaries ≤ RM5,000, 12% above); SOCSO/EIS wage ceilings default to the statutory
+RM 6,000 and stay adjustable in Settings. The payslip also shows the **employer
+share** (EPF/SOCSO/EIS), which is a company cost, not a deduction. Paid pages,
+excel/CVS export and per-person payslips all print.
 
 ---
 
@@ -216,11 +225,12 @@ Tabs:
 - **Allowances** — trip allowance, attendance allowance, overtime rates for payroll.
 - **Numbering** — prefixes for each document series (SO, INV, DN, PO, PAY…).
 - **Users** — add, deactivate, reset passwords, and issue driver logins.
-- **Data** — download a database backup, or reset the system.
+- **Data** — download a database backup, or restore the whole system from an
+  uploaded backup (a safety copy of the current data is made first).
 
 ---
 
-## 7. Backup, restore and reset
+## 7. Backup and restore
 
 ```bash
 npm run backup      # writes data/backup-<timestamp>.db (a clean VACUUM INTO copy)
@@ -229,22 +239,26 @@ npm run backup      # writes data/backup-<timestamp>.db (a clean VACUUM INTO cop
 **Back up from the UI too:** Settings → Data → *Download database backup*.
 This is the normal daily routine — the download works from any phone.
 
+**Restore from the UI:** Settings → Data → *Restore Backup File* — upload a
+`.db` backup to replace all current data. A safety copy of the current database
+(`clsbiz.pre-restore-<timestamp>.db`) is taken automatically first, so a wrong
+restore is never destructive. Restart the application after restoring.
+
 > `data/` holds the entire business. Copy that folder to a USB stick or cloud
 > drive, or schedule `npm run backup`.
 
-Other maintenance commands:
+Maintenance commands (CLI only, not shown in the UI):
 
 ```bash
 npm run seed        # load demo data into an empty database
 npm run reseed      # wipe transactional data, then reload demo data
-npm run reset       # interactive reset; asks before deleting anything
+npm run reset       # interactive maintenance reset; asks before deleting anything
 npm run smoke       # walk every page and report any that fail
 ```
 
 `npm run reset` will ask for confirmation. It removes orders, trips, invoices,
 payments, stock movements and fuel logs but keeps your settings, users, staff,
-lorries, customers, suppliers, items and mix designs. Deleting from
-Settings → Data requires typing `RESET`, and is admin-only.
+lorries, customers, suppliers, items and mix designs.
 
 ---
 
@@ -312,7 +326,7 @@ add new text — add matching keys to `src/i18n.js` in both `bm` and `en`.
 
 ### Before going live
 
-1. Change the admin password and delete the demo accounts.
+1. Change the admin password (a fresh install starts with one admin account).
 2. Update **Settings → Company** with your real details — they appear on every printed document.
 3. Set your SST rate, bank accounts and allowance rates.
 4. Enter your real lorries, staff, mix designs, items and customers (or reset and start fresh).

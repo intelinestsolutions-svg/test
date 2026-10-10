@@ -84,6 +84,9 @@ export const orderRoutes = [
             ? `<a href="/invoices/${get('SELECT id FROM invoices WHERE order_id = ?', r.id)?.id || ''}">${esc(r.invoice_no)}</a><div>${statusBadge(ctx, 'inv2.status', r.inv_status)}</div>`
             : `<span class="muted tiny">—</span>` },
         { key: 'status', label: T('a.status'), cell: (r) => statusBadge(ctx, 'ord.status', r.status) },
+        { key: 'act', label: '', align: 'right', cell: (r) =>
+          linkBtn(T('a.print'), `/print/order/${r.id}`, { ic: 'print', cls: 'sm', variant: 'link' }) +
+          `<a class="btn btn-ghost sm" href="/orders/${r.id}">${T('a.view')}</a>` },
       ];
 
       const body = `

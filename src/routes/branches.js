@@ -1,6 +1,6 @@
-import { all, get, run, listBranches, getBranch, setSessionBranch } from '../db.js';
-import { redirect, str, int } from '../lib/http.js';
-import { page, card, cardHead, table, field, submitBtn, linkBtn, badge, esc } from '../lib/html.js';
+import { all, get, run, getBranch, setSessionBranch } from '../db.js';
+import { html, str, int } from '../lib/http.js';
+import { page, card, table, field, submitBtn, linkBtn, badge, alert, esc } from '../lib/html.js';
 
 /**
  * Cawangan / Branch management.
@@ -36,49 +36,64 @@ export const branchRoutes = [
             (SELECT COUNT(*) FROM staff  WHERE branch_id IS NULL) AS staff,
             (SELECT COUNT(*) FROM orders WHERE branch_id IS NULL) AS orders`) || {};
 
-      return html(ctx.res, page(ctx, 'Cawangan / Branches', `
-        ${cardHead('Cawangan / Branches', `/branches/new`)}
-        ${unassigned.users || unassigned.orders ? `<div class="alert warn">
-          Rekod belum diumpukkan: ${unassigned.users || 0} pengguna, ${unassigned.staff || 0} kakitangan,
-          ${unassigned.orders || 0} pesanan. Rekod tanpa cawangan kelihatan di semua cawangan.
-        </div>` : ''}
-        ${card(`
-          ${table(['Kod', 'Nama', 'Pengguna', 'Kakitangan', 'Pesanan', 'Stok', 'Status', ''],
-            rows.map((b) => `<tr>
-              <td><code>${esc(b.code)}</code></td>
-              <td><b>${esc(b.name)}</b>${b.address ? `<br><small>${esc(b.address)}</small>` : ''}</td>
-              <td>${b.n_users}</td>
-              <td>${b.n_staff}</td>
-              <td>${b.n_orders}</td>
-              <td>${b.n_items}</td>
-              <td>${badge(b.active ? 'active' : 'resigned', b.active ? T('a.active') : 'Off')}</td>
-              <td>
-                ${linkBtn(`/branches/${b.id}`, T('a.edit'))}
-                <form method="post" action="/branches/${b.id}/toggle" style="display:inline">
-                  ${submitBtn(b.active ? 'Lumpuhkan' : 'Aktifkan', 'ghost')}
-                </form>
-              </td>
-            </tr>`),
-            ['Kod', 'Name', 'Users', 'Staff', 'Orders', 'Stock', 'Status', ''])}
-        `)}
-      `));
+      // Rekod tanpa cawangan kelihatan di semua cawangan - amaran admin supaya
+      // data tidak tersilap kepunyaan.
+      const warn = (unassigned.users || unassigned.orders)
+        ? alert('warn', `Rekod belum diumpukkan: ${unassigned.users || 0} pengguna, `
+          + `${unassigned.staff || 0} kakitangan, ${unassigned.orders || 0} pesanan. `
+          + 'Rekod tanpa cawangan kelihatan di semua cawangan.')
+        : '';
+
+      const cols = [
+        { label: 'Kod', cell: (b) => `<code>${esc(b.code)}</code>` },
+        {
+          label: 'Nama',
+          cell: (b) => `<b>${esc(b.name)}</b>`
+            + (b.address ? `<br><small>${esc(b.address)}</small>` : ''),
+        },
+        { label: 'Pengguna', align: 'right', cell: (b) => b.n_users },
+        { label: 'Kakitangan', align: 'right', cell: (b) => b.n_staff },
+        { label: 'Pesanan', align: 'right', cell: (b) => b.n_orders },
+        { label: 'Stok', align: 'right', cell: (b) => b.n_items },
+        {
+          label: 'Status',
+          cell: (b) => badge(b.active ? 'Aktif' : 'Off', b.active ? 'st-active' : 'st-off'),
+        },
+        {
+          label: '',
+          align: 'right',
+          cell: (b) => `${linkBtn(T('a.edit'), `/branches/${b.id}`)}
+            <form method="post" action="/branches/${b.id}/toggle" style="display:inline">
+              ${submitBtn(b.active ? 'Lumpuhkan' : 'Aktifkan', { variant: 'ghost' })}
+            </form>`,
+        },
+      ];
+
+      return html(ctx.res, page(ctx, {
+        title: 'Cawangan / Branches',
+        actions: linkBtn('Cawangan Baru', '/branches/new', { ic: 'plus', variant: 'primary' }),
+        body: `${warn}${card(table(cols, rows, { emptyMsg: 'Tiada cawangan / No branches' }))}`,
+      }));
     },
   },
 
   {
     method: 'GET', path: '/branches/new', role: ['admin'], handler(ctx) {
-      return html(ctx.res, page(ctx, 'Cawangan Baru / New Branch', card(`
-        <form method="post" action="/branches/new">
-          ${field({ label: 'Kod / Code', name: 'code', placeholder: 'papar' })}
-          ${field({ label: 'Nama / Name', name: 'name', placeholder: 'Papar' })}
-          ${field({ label: 'Alamat / Address', name: 'address' })}
-          ${field({ label: 'Telefon / Phone', name: 'phone' })}
-          <div class="form-actions">
-            ${submitBtn('Simpan / Save')}
-            ${linkBtn('/branches', 'Batal / Cancel', 'ghost')}
-          </div>
-        </form>
-      `)));
+      return html(ctx.res, page(ctx, {
+        title: 'Cawangan Baru / New Branch',
+        body: card(`
+          <form method="post" action="/branches/new">
+            ${field({ label: 'Kod / Code', name: 'code', placeholder: 'papar', required: true })}
+            ${field({ label: 'Nama / Name', name: 'name', placeholder: 'Papar', required: true })}
+            ${field({ label: 'Alamat / Address', name: 'address' })}
+            ${field({ label: 'Telefon / Phone', name: 'phone' })}
+            <div class="form-actions">
+              ${submitBtn('Simpan / Save')}
+              ${linkBtn('Batal / Cancel', '/branches', { variant: 'ghost' })}
+            </div>
+          </form>
+        `),
+      }));
     },
   },
 
@@ -104,19 +119,26 @@ export const branchRoutes = [
   {
     method: 'GET', path: '/branches/:id', role: ['admin'], handler(ctx) {
       const b = getBranch(int(ctx.params.id));
-      if (!b) return html(ctx.res, page(ctx, '404', '<p>Tidak dijumpai</p>'), 404);
-      return html(ctx.res, page(ctx, b.name, card(`
-        <form method="post" action="/branches/${b.id}">
-          ${field({ label: 'Kod / Code', name: 'code', value: b.code })}
-          ${field({ label: 'Nama / Name', name: 'name', value: b.name })}
-          ${field({ label: 'Alamat / Address', name: 'address', value: b.address })}
-          ${field({ label: 'Telefon / Phone', name: 'phone', value: b.phone })}
-          <div class="form-actions">
-            ${submitBtn('Simpan / Save')}
-            ${linkBtn('/branches', 'Batal / Cancel', 'ghost')}
-          </div>
-        </form>
-      `)));
+      if (!b) {
+        return html(ctx.res, page(ctx, {
+          title: '404', body: alert('err', 'Tidak dijumpai / Not found'),
+        }), 404);
+      }
+      return html(ctx.res, page(ctx, {
+        title: b.name,
+        body: card(`
+          <form method="post" action="/branches/${b.id}">
+            ${field({ label: 'Kod / Code', name: 'code', value: b.code })}
+            ${field({ label: 'Nama / Name', name: 'name', value: b.name })}
+            ${field({ label: 'Alamat / Address', name: 'address', value: b.address })}
+            ${field({ label: 'Telefon / Phone', name: 'phone', value: b.phone })}
+            <div class="form-actions">
+              ${submitBtn('Simpan / Save')}
+              ${linkBtn('Batal / Cancel', '/branches', { variant: 'ghost' })}
+            </div>
+          </form>
+        `),
+      }));
     },
   },
 
@@ -127,7 +149,10 @@ export const branchRoutes = [
       if (!b) return { __redirect: '/branches' };
       const code = str(ctx.body.code).toLowerCase().trim() || b.code;
       const clash = get('SELECT id FROM branches WHERE code = ? AND id != ?', code, id);
-      if (clash) { ctx.flashMsg(`${code} sudah digunakan`, 'err'); return { __redirect: `/branches/${id}` }; }
+      if (clash) {
+        ctx.flashMsg(`${code} sudah digunakan / already in use`, 'err');
+        return { __redirect: `/branches/${id}` };
+      }
       run('UPDATE branches SET code = ?, name = ?, address = ?, phone = ? WHERE id = ?',
         code, str(ctx.body.name), str(ctx.body.address), str(ctx.body.phone), id);
       ctx.flashMsg(ctx.t('a.saved'));

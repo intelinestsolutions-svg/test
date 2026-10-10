@@ -345,11 +345,56 @@ export function allowanceRates() {
   };
 }
 
+/* Statutory contribution calculators (Malaysia versi 2025/2026).
+ * SOCSO: had gaji RM 6,000/bulan (dinaikkan dari RM 5,000, kuat kuasa
+ * 1 Okt 2024). Kadar skema Pertama (Kemalangan & Ilat): majikan 1.75%,
+ * pekerja 0.5%. PERKESO sebenarnya guna jadual tetap, tetapi peratusan
+ * ini anggaran standard untuk penggajian biasa.
+ * EIS: had gaji RM 6,000/bulan; majikan & pekerja 0.2% setiap satu. */
+export function socsoCalc(wages) {
+  const ceiling = num(setting('socso_ceiling')) || 6000;
+  const cap = Math.min(wages, ceiling);
+  const er = round2(cap * (num(setting('socso_employer_rate')) || 0.0175));
+  const ee = round2(cap * (num(setting('socso_employee_rate')) || 0.005));
+  return { ceiling, er, ee, wages };
+}
+
+export function eisCalc(wages) {
+  const ceiling = num(setting('eis_ceiling')) || 6000;
+  const cap = Math.min(wages, ceiling);
+  const er = round2(cap * (num(setting('eis_employer_rate')) || 0.002));
+  const ee = round2(cap * (num(setting('eis_employee_rate')) || 0.002));
+  return { ceiling, er, ee, wages };
+}
+
+/* EPF dikira AUTOMATIK mengikut jadual KWSP terkini (Third Schedule,
+ * kuat kuasa 1 Okt 2025) - tiada perlu dikonfigurasikan:
+ *   - majikan: 13% gaji ≤ RM5,000 / 12% gaji > RM5,000
+ *   - pekerja: 11% (warganegara/PR bawah 60; pilihan kekal 11%)
+ * Gaji di sini ialah gaji kasar bulanan (pokok + elaun + OT). */
+export function epfCalc(wages) {
+  const ceiling = num(setting('epf_ceiling')) || 0; // 0 = tiada had
+  const w = ceiling > 0 ? Math.min(wages, ceiling) : wages;
+  const erRate = w > 5000 ? 0.12 : 0.13;
+  const eeRate = 0.11;
+  const er = round2(w * erRate);
+  const ee = round2(w * eeRate);
+  return { ceiling, er, ee, wages: w };
+}
+
 export function payrollForMonth(month) {
   const from = `${month}-01`;
   const to = `${month}-31`;
   const staff = all(`SELECT * FROM staff WHERE status != 'resigned' ORDER BY role, name`);
   const a = allowanceRates();
+  // Kadar lembur setiap staf (0 = auto daripada gaji).
+  const otRates = Object.fromEntries(
+    all('SELECT staff_id, normal_rate, rest_rate, ph_rate FROM staff_ot_rates').map((r) => [r.staff_id, r]));
+  // Jam lembur direkodkan di attendance (ot_normal / ot_rest / ot_ph).
+  const otHours = Object.fromEntries(all(`SELECT staff_id,
+        COALESCE(SUM(ot_normal),0) AS n, COALESCE(SUM(ot_rest),0) AS r, COALESCE(SUM(ot_ph),0) AS p
+      FROM attendance WHERE work_date BETWEEN ? AND ? GROUP BY staff_id`, from, to)
+    .map((r) => [r.staff_id, r]));
   const out = [];
   for (const s of staff) {
     const att = get(`SELECT
@@ -366,11 +411,41 @@ export function payrollForMonth(month) {
     const attAllow = round2(daysWorked * a.driverDaily);
     const tripAllow = round2(nTrips * a.driverTrip);
     const basic = num(s.salary);
+
+    // Lembur: guna kadar yang ditetapkan admin; kalau 0, auto daripada
+    // gaji asas (gaji ÷ 26 ÷ 8 × 1.5 / 2.0 / 3.0).
+    const hourly = basic > 0 ? basic / 26 / 8 : 0;
+    const otr = otRates[s.id] || {};
+    const otNormalRate = num(otr.normal_rate) || round2(hourly * 1.5);
+    const otRestRate = num(otr.rest_rate) || round2(hourly * 2);
+    const otPhRate = num(otr.ph_rate) || round2(hourly * 3);
+    const oh = otHours[s.id] || { n: 0, r: 0, p: 0 };
+    const otNormal = round2(oh.n), otRest = round2(oh.r), otPh = round2(oh.p);
+    const otPay = round2(otNormal * otNormalRate + otRest * otRestRate + otPh * otPhRate);
+
+    const gross = round2(basic + attAllow + tripAllow + otPay);
+
+    // Statutory deductions (employee share only — employer share is company cost)
+    const socso = socsoCalc(gross);
+    const eis = eisCalc(gross);
+    const epf = epfCalc(gross);
+    const socso_ee = socso.ee;
+    const eis_ee = eis.ee;
+    const epf_ee = epf.ee;
+    const total_ee = round2(socso_ee + eis_ee + epf_ee);
+
     out.push({
       staff: s, basic, daysWorked, trips: nTrips, m3, attAllow, tripAllow,
-      loaderAllow: 0, otHours: 0, deduction: 0,
-      gross: round2(basic + attAllow + tripAllow),
-      net: round2(basic + attAllow + tripAllow),
+      loaderAllow: 0,
+      otHours: round2(otNormal + otRest + otPh), otNormal, otRest, otPh,
+      otNormalRate, otRestRate, otPhRate, otPay,
+      socso_er: socso.er, socso_ee,
+      eis_er: eis.er, eis_ee,
+      epf_er: epf.er, epf_ee,
+      employerCost: round2(socso.er + eis.er + epf.er),
+      deduction: total_ee,
+      gross,
+      net: round2(gross - total_ee),
     });
   }
   return out;

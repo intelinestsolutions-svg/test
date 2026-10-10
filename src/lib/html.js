@@ -376,7 +376,7 @@ export function alert(kind, text) {
 }
 export function tabs(ctx, items, current) {
   const l = (x) => esc(x);
-  return raw(`<div class="tabs">${items.map(([href, label, n]) => `<a class="tab ${href === current ? 'on' : ''}" href="${href}">${l(label)}${n !== undefined ? `<b>${n}</b>` : ''}</a>`).join('')}</div>`);
+  return raw(`<div class="tabs">${items.map(([href, label, n]) => `<a class="tab ${href === current ? 'on' : ''}" href="${href}">${l(label)}${n !== null && n !== undefined ? `<b>${n}</b>` : ''}</a>`).join('')}</div>`);
 }
 export function filterBar(ctx, { action, fields = '' }) {
   return raw(`<form class="filters" method="get" action="${action}">

@@ -8,6 +8,11 @@ import { html, today, num, str, int, daysBetween, monthStart } from '../lib/http
 import { page, icon, esc, money, qty, fmtDate } from '../lib/html.js';
 import { round2, mixByCode, payrollForMonth } from '../lib/biz.js';
 
+/* Logo syarikat untuk kepala dokumen. Fail logo asal TIDAK diubah -
+   ia cuma dipaparkan dengan saiz tetap (tinggi tetap, lebar auto) supaya
+   nisbah asalnya kekal dan tidak herot semasa cetakan. */
+const docLogo = (s) => `<img class="doc-logo" src="/img/kotamix-logo.png" alt="${String(s.company_name || 'Kotamix Concrete').replace(/"/g, '&quot;')}">`;
+
 export const printRoutes = [
   /* ---------------- DELIVERY NOTE (2-up A5) ---------------- */
   {
@@ -36,7 +41,7 @@ export const printRoutes = [
         <section class="sheet dn ${copyClass}">
           <div class="dn-strip"></div>
           <div class="doc-top">
-            <div><b class="doc-co">${esc(s.company_name)}</b>
+            <div>${docLogo(s)}<b class="doc-co">${esc(s.company_name)}</b>
               <div class="tiny">${esc(s.company_reg_no || '')}</div>
               <div class="tiny">${esc(s.company_address || '')}</div>
               <div class="tiny">${esc(s.company_phone || '')} ${esc(s.company_email || '')}</div></div>
@@ -136,7 +141,7 @@ export const printRoutes = [
       const body = `<div class="print-sheets a4">
         <section class="sheet invoice">
           <div class="doc-top">
-            <div><b class="doc-co">${esc(s.company_name)}</b>
+            <div>${docLogo(s)}<b class="doc-co">${esc(s.company_name)}</b>
               <div class="tiny">${[s.company_reg_no, s.company_sst_no].filter(Boolean).map(esc).join(' · ')}</div>
               <div class="tiny">${esc(s.company_address || '')}</div>
               <div class="tiny">${esc(s.company_phone || '')} ${esc(s.company_email || '')}</div></div>
@@ -234,7 +239,7 @@ export const printRoutes = [
       const body = `<div class="print-sheets a5">
         <section class="sheet receipt">
           <div class="doc-top">
-            <div><b class="doc-co">${esc(s.company_name)}</b>
+            <div>${docLogo(s)}<b class="doc-co">${esc(s.company_name)}</b>
               <div class="tiny">${esc(s.company_reg_no || '')}</div>
               <div class="tiny">${esc(s.company_address || '')}</div>
               <div class="tiny">${esc(s.company_phone || '')}</div></div>
@@ -309,7 +314,7 @@ export const printRoutes = [
       const body = `<div class="print-sheets a4">
         <section class="sheet statement">
           <div class="doc-top">
-            <div><b class="doc-co">${esc(s.company_name)}</b>
+            <div>${docLogo(s)}<b class="doc-co">${esc(s.company_name)}</b>
               <div class="tiny">${esc(s.company_reg_no || '')}</div>
               <div class="tiny">${esc(s.company_address || '')}</div>
               <div class="tiny">${esc(s.company_phone || '')} ${esc(s.company_email || '')}</div></div>
@@ -371,7 +376,7 @@ export const printRoutes = [
       const body = `<div class="print-sheets a5">
         <section class="sheet payslip">
           <div class="doc-top">
-            <div><b class="doc-co">${esc(s.company_name)}</b>
+            <div>${docLogo(s)}<b class="doc-co">${esc(s.company_name)}</b>
               <div class="tiny">${esc(s.company_reg_no || '')}</div>
               <div class="tiny">${esc(s.company_address || '')}</div></div>
             <div class="ta-right"><div class="doc-title">${T('doc.payslip')}</div>
@@ -399,8 +404,14 @@ export const printRoutes = [
               <tr><td>${T('pay.tripAllowance')}</td><td class="ta-right">${num(me.trips)}</td>
                 <td class="ta-right">${esc(money(me.tripAllow / (me.trips || 1), lang))}</td>
                 <td class="ta-right">${esc(money(me.tripAllow, lang))}</td></tr>
+              ${me.otNormal ? `<tr><td>${T('pay.otNormal')}</td><td class="ta-right">${num(me.otNormal)} jam</td>
+                <td class="ta-right">${esc(money(me.otNormalRate, lang))}</td><td class="ta-right">${esc(money(round2(me.otNormal * me.otNormalRate), lang))}</td></tr>` : ''}
+              ${me.otPh ? `<tr><td>${T('pay.otPh')}</td><td class="ta-right">${num(me.otPh)} jam</td>
+                <td class="ta-right">${esc(money(me.otPhRate, lang))}</td><td class="ta-right">${esc(money(round2(me.otPh * me.otPhRate), lang))}</td></tr>` : ''}
               ${me.deduction ? `<tr><td>${T('pay.deduction')}</td><td class="ta-right"></td>
                 <td class="ta-right"></td><td class="ta-right neg">− ${esc(money(me.deduction, lang))}</td></tr>` : ''}
+              <tr><td class="muted">${T('pay.employerShare')}</td><td colspan="3" class="ta-right muted">
+                ${T('pay.epf')} ${esc(money(me.epf_er || 0, lang))} · ${T('pay.socso')} ${esc(money(me.socso_er || 0, lang))} · ${T('pay.eis')} ${esc(money(me.eis_er || 0, lang))}</td></tr>
             </tbody>
           </table>
           <div class="doc-total">
@@ -444,7 +455,7 @@ export const printRoutes = [
       const body = `<div class="print-sheets a4">
         <section class="sheet order">
           <div class="doc-top">
-            <div><b class="doc-co">${esc(s.company_name)}</b>
+            <div>${docLogo(s)}<b class="doc-co">${esc(s.company_name)}</b>
               <div class="tiny">${esc(s.company_reg_no || '')}</div>
               <div class="tiny">${esc(s.company_address || '')}</div>
               <div class="tiny">${esc(s.company_phone || '')} ${esc(s.company_email || '')}</div></div>
@@ -528,7 +539,7 @@ export const printRoutes = [
       const body = `<div class="print-sheets a4">
         <section class="sheet po">
           <div class="doc-top">
-            <div><b class="doc-co">${esc(s.company_name)}</b>
+            <div>${docLogo(s)}<b class="doc-co">${esc(s.company_name)}</b>
               <div class="tiny">${esc(s.company_reg_no || '')}</div>
               <div class="tiny">${esc(s.company_address || '')}</div>
               <div class="tiny">${esc(s.company_phone || '')} ${esc(s.company_email || '')}</div></div>

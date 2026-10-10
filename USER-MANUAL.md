@@ -22,14 +22,16 @@ tap **Staff Log In (Log Masuk Staf)**.
 - Your session lasts 14 days on the same browser. Always **Log Out (Keluar)**
   (⏻ icon, top right) on shared devices.
 
-### Demo accounts (change these before going live)
+### Initial admin account (change the password before going live)
 
 | Username | Password | Role | Sees |
 |----------|----------|------|------|
-| `admin` | `admin123` | Admin | Everything, including Settings, users, backup, reset |
-| `office` | `office123` | Office | Operations: orders, deliveries, invoices, payments, fleet, stock, staff |
-| `driver` | `driver123` | Driver | Dashboard, orders view, deliveries and trip actions only |
-| `driver2` / `driver3` | same as name | Driver | Extra driver logins for scheduling |
+| `admin` | `admin123` | Admin | Everything, including Settings and users |
+
+A fresh installation starts with one admin account and no demo data. Sign in
+as `admin`, change the password, and add your own accounts under
+**Settings → Users**. Staff can sign in with their employee code (e.g.
+`PPR-S01`) once a password is set for them.
 
 Drivers do not see Settings, Payroll, Purchasing, or Mix Designs in the menu,
 and Settings pages are admin-only.
@@ -227,8 +229,10 @@ turn off browser headers/footers.
 - **Allowances:** daily / trip / overtime rates for payroll.
 - **Numbering:** prefixes for SO, INV, DN, TRP, PAY, RC series.
 - **Users:** add accounts (admin / office / driver), change passwords,
-  deactivate leavers. Change the demo passwords here first.
-- **Data:** download a database backup; dangerous-zone reset (type RESET).
+  deactivate leavers, and set each staff member's password so they can sign
+  in with their employee code.
+- **Data:** download a database backup, or restore from an uploaded backup
+  (a safety copy of the current database is kept automatically first).
 
 ---
 
@@ -242,12 +246,16 @@ turn off browser headers/footers.
 
 ---
 
-## 17. Backup, reset, troubleshooting
+## 17. Backup, restore, troubleshooting
 
-- **Daily routine:** Settings → Data → Download backup (works from any phone).
-  `data/` holds the whole business — copy it to USB/cloud as well.
-- **Reset** wipes transactions but keeps masters (settings, users, staff,
-  lorries, customers, items, mixes).
+- **Daily routine:** Settings → Data → *Download database backup* (works from
+  any phone). `data/` holds the whole business — copy it to USB/cloud too.
+- **Restore:** Settings → Data → *Restore backup file* replaces all current
+  data with the uploaded backup. A safety copy of the current database
+  (`clsbiz.pre-restore-<timestamp>.db`) is taken automatically first. Restart
+  the application after restoring.
+- There is **no reset button** in the app. To start completely fresh, restore
+  an empty database backup or contact your system administrator.
 
 | Symptom | Fix |
 |---|---|
@@ -263,7 +271,7 @@ turn off browser headers/footers.
 ## 18. Security notes
 
 - Sign out on shared devices; sessions expire after 14 days.
-- Settings pages, backup, and reset enforce admin at server level (drivers
+- Settings pages, backup and restore enforce admin at server level (drivers
   additionally have them hidden from the menu) — keep admin accounts to
   owners only.
 - The office LAN build uses plain HTTP. Before exposing it to the internet

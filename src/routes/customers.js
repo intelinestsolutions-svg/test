@@ -56,6 +56,9 @@ export const customerRoutes = [
         { key: 'balance', label: T('cus.balance'), align: 'right', cell: (r) => num(r.balance) > 0 ? `<b class="amber">${esc(money(r.balance, lang))}</b>` : '<span class="green">—</span>' },
         { key: 'last_order', label: T('ord.deliveryDate'), cell: (r) => r.last_order ? fmtDate(r.last_order, lang) : '—' },
         { key: 'active', label: T('a.status'), cell: (r) => badge(r.active ? T('stf.status.active') : T('a.no'), r.active ? 'ok' : 'neutral') },
+        { key: 'act', label: '', align: 'right', cell: (r) =>
+          linkBtn(T('rec.statement'), `/print/statement/${r.id}`, { ic: 'print', cls: 'sm', variant: 'link' }) +
+          `<a class="btn btn-ghost sm" href="/customers/${r.id}">${T('a.view')}</a>` },
       ], rows, { emptyMsg: T('a.noDataHint') }))}`;
 
       return html(ctx.res, page(ctx, {

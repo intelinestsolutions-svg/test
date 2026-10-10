@@ -1,7 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, copyFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import {
-  all, get, run, tx, setSetting, hashPassword, verifyPassword, setting, db, DATA_DIR,
+  all, get, run, setSetting, hashPassword, verifyPassword, setting, db, DATA_DIR,
   listBranches, getBranch, getStaffLevels, setStaffLevels, branchAbbr,
 } from '../db.js';
 import { redirect, html, today, num, str, int, text } from '../lib/http.js';
@@ -15,9 +16,14 @@ const COMPANY_KEYS = ['company_name', 'company_reg_no', 'company_sst_no', 'compa
 const FINANCE_KEYS = ['sst_rate', 'default_delivery_charge', 'default_payment_terms', 'base_url'];
 const BANK_KEYS = ['bank_name', 'bank_account'];
 const ALLOW_KEYS = ['driver_daily_allowance', 'driver_trip_allowance', 'loader_trip_allowance'];
+const PAYROLL_KEYS = [
+  'socso_ceiling', 'socso_employer_rate', 'socso_employee_rate',
+  'eis_ceiling', 'eis_employer_rate', 'eis_employee_rate',
+  'epf_ceiling',
+];
 const PREFIX_KEYS = ['invoice_prefix', 'order_prefix', 'dn_prefix', 'trip_prefix', 'payment_prefix', 'receipt_prefix'];
 
-const TAB_KEYS = { company: COMPANY_KEYS, finance: FINANCE_KEYS, bank: BANK_KEYS, allow: ALLOW_KEYS, numbering: PREFIX_KEYS, users: null, data: null, github: null };
+const TAB_KEYS = { company: COMPANY_KEYS, finance: FINANCE_KEYS, bank: BANK_KEYS, allow: ALLOW_KEYS, payroll: PAYROLL_KEYS, numbering: PREFIX_KEYS, users: null, data: null, github: null };
 
 export const settingsRoutes = [
   {
@@ -35,8 +41,9 @@ export const settingsRoutes = [
         ['/settings?tab=finance', T('set.finance'), null],
         ['/settings?tab=bank', T('set.bank'), null],
         ['/settings?tab=allow', T('set.allowance'), null],
+        ['/settings?tab=payroll', T('set.payroll'), null],
         ['/settings?tab=numbering', T('set.numbering'), null],
-        ['/settings?tab=users', T('set.users'), num(get('SELECT COUNT(*) AS n FROM users WHERE active=1')?.n)],
+        ['/settings?tab=users', T('set.users'), null],
         ['/settings?tab=data', T('set.data'), null],
         ['/settings?tab=github', T('set.github'), null],
       ], `/settings?tab=${tab}`);
@@ -69,6 +76,16 @@ export const settingsRoutes = [
           f(T('set.driverTrip'), 'driver_trip_allowance', a.driverTrip, { type: 'number', step: '0.01' }),
           f(T('set.loaderTrip'), 'loader_trip_allowance', a.loaderTrip, { type: 'number', step: '0.01' }),
         ]) + `<p class="tiny muted mt">${T('pay.title')} → <a href="/payroll">/payroll</a></p>`);
+      } else if (tab === 'payroll') {
+        panel = card(cardHead(T('set.payroll')), form(ctx, 'payroll', PAYROLL_KEYS, [
+          f(T('set.socsoCeiling'), 'socso_ceiling', s.socso_ceiling, { type: 'number', step: '1', hint: T('set.ceilingHint') }),
+          f(T('set.socsoEmployer'), 'socso_employer_rate', s.socso_employer_rate, { type: 'number', step: '0.0001' }),
+          f(T('set.socsoEmployee'), 'socso_employee_rate', s.socso_employee_rate, { type: 'number', step: '0.0001' }),
+          f(T('set.eisCeiling'), 'eis_ceiling', s.eis_ceiling, { type: 'number', step: '1' }),
+          f(T('set.eisEmployer'), 'eis_employer_rate', s.eis_employer_rate, { type: 'number', step: '0.0001' }),
+          f(T('set.eisEmployee'), 'eis_employee_rate', s.eis_employee_rate, { type: 'number', step: '0.0001' }),
+          f(T('set.epfCeiling'), 'epf_ceiling', s.epf_ceiling, { type: 'number', step: '1', hint: '0 = tiada had' }),
+        ]) + `<p class="tiny muted mt">${T('set.epfStatutory')}</p>`);
       } else if (tab === 'numbering') {
         panel = card(cardHead(T('set.numbering')), form(ctx, 'numbering', PREFIX_KEYS, [
           f(T('ord.no'), 'order_prefix', s.order_prefix),
@@ -124,8 +141,8 @@ export const settingsRoutes = [
             <div class="form-actions span-2">${submitBtn(T('a.add'), { ic: 'plus' })}</div>
           </form></div>
           <div class="card">${cardHead(T('login.changePw'))}<form method="post" action="/settings/password" class="form-grid">
-            ${field({ label: T('stf.username'), name: 'username', value: '' })}
-            ${field({ label: T('login.newPw'), name: 'password', value: '', required: true })}
+            ${field({ label: T('login.oldPw'), name: 'old_password', value: '', type: 'password', required: true, attrs: 'autocomplete="current-password"' })}
+            ${field({ label: T('login.newPw'), name: 'password', value: '', type: 'password', required: true, attrs: 'autocomplete="new-password"' })}
             <div class="form-actions span-2">${submitBtn(T('login.changePw'), { ic: 'check' })}</div>
           </form></div>
         </div>
@@ -157,12 +174,14 @@ export const settingsRoutes = [
           <div class="actions-row mt">
             ${linkBtn(T('set.downloadBackup'), '/settings/backup.db', { ic: 'download', variant: 'primary' })}
           </div>
-          <div class="danger-zone mt">
-            <h3>${T('set.dangerZone')}</h3>
-            <p class="tiny">${T('set.resetWarn')}</p>
-            <form method="post" action="/settings/reset" onsubmit="return confirm('${T('a.confirm')}?')">
-              <input type="hidden" name="confirm" value="RESET">
-              <button class="btn btn-danger" type="submit">${T('set.resetDemo')}</button></form>
+          <div class="mt">
+            <h3>${T('set.restore')}</h3>
+            <p class="tiny">${T('set.restoreHint')}</p>
+            <form id="restoreForm" class="form-grid">
+              <label class="field span-2"><span class="field-label">${T('set.restoreFile')}</span>
+                <input type="file" id="restoreFile" accept=".db,.sqlite,application/octet-stream" required></label>
+              <div class="form-actions span-2"><button class="btn btn-primary" type="submit">${T('set.restoreBtn')}</button></div>
+            </form>
           </div>`);
       } else if (tab === 'github') {
         panel = card(cardHead(T('set.github')), `
@@ -177,7 +196,27 @@ export const settingsRoutes = [
             <button class="btn btn-primary" type="submit">${T('set.ghPush')}</button></form>`);
       }
 
-      return html(ctx.res, page(ctx, { title: T('set.title'), body: tabsHtml + panel }));
+      // Skrip muat naik fail sandaran (.db mentah) ke /settings/restore.
+      const J = (k) => JSON.stringify(ctx.t(k));
+      const restoreScript = tab === 'data' ? `
+document.getElementById('restoreForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const inp = document.getElementById('restoreFile');
+  if (!inp.files || !inp.files[0]) { alert(${J('set.restoreFile')}); return; }
+  if (!confirm(${J('set.restoreConfirm')})) return;
+  const btn = e.target.querySelector('button');
+  btn.disabled = true; btn.textContent = ${J('set.restoreProgress')};
+  try {
+    const r = await fetch('/settings/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: inp.files[0],
+    });
+    alert(await r.text());
+  } catch (err) { alert('Error: ' + err.message); }
+  btn.disabled = false; btn.textContent = ${J('set.restoreBtn')};
+});` : '';
+      return html(ctx.res, page(ctx, { title: T('set.title'), body: tabsHtml + panel, script: restoreScript }));
     },
   },
   {
@@ -244,6 +283,7 @@ export const settingsRoutes = [
     method: 'POST', path: '/settings/password', handler(ctx) {
       const u = get('SELECT * FROM users WHERE id = ?', ctx.user.id);
       if (!verifyPassword(str(ctx.body.old_password), u.password_hash)) { ctx.flashMsg(ctx.t('login.failed'), 'err'); return { __redirect: '/settings?tab=users' }; }
+      if (!str(ctx.body.password)) { ctx.flashMsg(ctx.t('a.required'), 'err'); return { __redirect: '/settings?tab=users' }; }
       run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(str(ctx.body.password)), u.id);
       ctx.flashMsg(ctx.t('a.saved'));
       return { __redirect: '/settings?tab=users' };
@@ -314,31 +354,41 @@ export const settingsRoutes = [
     },
   },
   {
-    method: 'POST', path: '/settings/reset', role: ['admin'], handler(ctx) {
-      if (str(ctx.body.confirm) !== 'RESET') {
-        ctx.flashMsg(ctx.t('set.resetWarn'), 'err');
+    method: 'POST', path: '/settings/restore', role: ['admin'], handler(ctx) {
+      const raw = ctx.body && ctx.body.__raw;
+      if (!raw || !Buffer.isBuffer(raw) || raw.length < 512) {
+        ctx.flashMsg(ctx.t('set.restoreInvalid'), 'err');
         return { __redirect: '/settings?tab=data' };
       }
-      // Wipe transactional data only; keep users, settings and the catalogue.
-      const wipe = [
-        'stock_movements', 'fuel_logs', 'payments', 'online_payments', 'invoices',
-        'trips', 'orders', 'purchase_items', 'purchases', 'attendance',
-      ];
-      tx(() => {
-        for (const t of wipe) run(`DELETE FROM ${t}`);
-        run('DELETE FROM counters');
-        run('DELETE FROM sites');
-        run('DELETE FROM customers');
-        run('DELETE FROM stock_movements');
-        run(`UPDATE lorries SET status = 'available', fuel_litres = 0`);
-      });
-      ctx.flashMsg(ctx.t('set.resetDone'));
+      const live = join(DATA_DIR, 'clsbiz.db');
+      const tmp = join(DATA_DIR, 'clsbiz.restore.tmp.db');
+      try {
+        writeFileSync(tmp, raw);
+        // Sahkan ia fail SQLite sebenar dengan jadual teras sebelum guna.
+        const check = new DatabaseSync(tmp, { readOnly: true });
+        const names = check.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('settings','users','orders')").all().map((r) => r.name);
+        check.close();
+        if (names.length < 3) {
+          unlinkSync(tmp);
+          ctx.flashMsg(ctx.t('set.restoreInvalid'), 'err');
+          return { __redirect: '/settings?tab=data' };
+        }
+        // Sandaran automatik data semasa, kemudian tukar fail.
+        try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch {}
+        copyFileSync(live, join(DATA_DIR, `clsbiz.pre-restore-${Date.now()}.db`));
+        copyFileSync(tmp, live);
+        unlinkSync(tmp);
+        ctx.flashMsg(ctx.t('set.restoreDone'));
+      } catch (e) {
+        try { unlinkSync(tmp); } catch {}
+        ctx.flashMsg(`Restore: ${e.message}`, 'err');
+      }
       return { __redirect: '/settings?tab=data' };
     },
   },
   {
     // Generic tab saver — must stay LAST: /settings/:tab would shadow the
-    // specific POST routes above (users, password, github-*, reset).
+    // specific POST routes above (users, password, github-*, restore).
     method: 'POST', path: '/settings/:tab', role: ['admin'], handler(ctx) {
       const tab = ctx.params.tab;
       const keys = TAB_KEYS[tab];

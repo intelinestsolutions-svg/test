@@ -32,6 +32,12 @@ export function parseBody(req, limitBytes = 3 * 1024 * 1024) {
         catch { resolve({}); }
         return;
       }
+      // Muat naik fail binari (contoh: restore sandaran .db). Serahkan
+      // Buffer mentah supaya route boleh sahkan & simpan sendiri.
+      if (ct.includes('application/octet-stream') || ct.includes('application/x-sqlite3') || ct.includes('application/vnd.sqlite3')) {
+        resolve({ __raw: buf });
+        return;
+      }
       resolve(parseForm(buf.toString('utf8')));
     });
     req.on('error', reject);

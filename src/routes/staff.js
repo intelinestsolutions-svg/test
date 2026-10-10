@@ -69,7 +69,12 @@ export const staffRoutes = [
             ? badge(esc(r.username), 'ok')
             : `<span class="muted tiny">${T('stf.noLogin')}</span>` },
           { key: 'status', label: T('a.status'), cell: (r) => badge(esc(T('stf.status.' + r.status)), r.status === 'active' ? 'ok' : r.status === 'leave' ? 'warn' : 'neutral') },
-          { key: 'act', label: '', align: 'right', cell: (r) => linkBtn(T('a.edit'), `/staff/${r.id}/edit`, { variant: 'link', cls: 'sm' }) },
+          { key: 'act', label: '', align: 'right', cell: (r) =>
+            linkBtn(T('a.edit'), `/staff/${r.id}/edit`, { variant: 'link', cls: 'sm' }) +
+            (ctx.user.role === 'admin' && r.id !== ctx.user.staff_id
+              ? `<form method="post" action="/staff/${r.id}/delete" class="inline-form" onsubmit="return confirm('${T('stf.deleteConfirm')}')">
+                  <button class="btn btn-danger-ghost sm" type="submit">${T('a.delete')}</button></form>`
+              : '') },
         ], rows, { emptyMsg: T('a.noDataHint') }))}`;
 
       return html(ctx.res, page(ctx, {
@@ -110,10 +115,11 @@ export const staffRoutes = [
           return { __redirect: '/staff/new' };
         }
       }
-      const r = run(`INSERT INTO staff (emp_no, name, role, phone, ic_no, licence_class, licence_expiry, address, salary, join_date, status, note, branch_id, created_at)
-                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      const r = run(`INSERT INTO staff (emp_no, name, role, phone, ic_no, licence_class, licence_expiry, address, salary, annual_leave, join_date, status, note, branch_id, created_at)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         f.emp_no, f.name, f.role, f.phone, f.ic_no, f.licence_class, f.licence_expiry, f.address,
-        f.salary, f.join_date, f.status, f.note, f.branch_id, new Date().toISOString());
+        f.salary, f.annual_leave, f.join_date, f.status, f.note, f.branch_id, new Date().toISOString());
+      upsertOtRates(r.id, f);
       // Username lalai kepada nombor pekerja supaya kakitangan
       // login dengan kod yang tercetak pada slip gaji. Kebenan kewangan TIDAK
       // diberi di sini - admin yang memberikannya dari Tetapan -> Pengguna.
@@ -134,6 +140,9 @@ export const staffRoutes = [
     method: 'GET', path: '/staff/:id/edit', handler(ctx) {
       const s = get('SELECT * FROM staff WHERE id = ?', int(ctx.params.id));
       if (!s) { ctx.flashMsg('404', 'err'); return { __redirect: '/staff' }; }
+      // Kadar lembur disimpan dalam jadual berasingan - gabungkan untuk borang.
+      const otr = get('SELECT * FROM staff_ot_rates WHERE staff_id = ?', int(ctx.params.id));
+      if (otr) Object.assign(s, { ot_normal: otr.normal_rate, ot_rest: otr.rest_rate, ot_ph: otr.ph_rate });
       return html(ctx.res, page(ctx, staffForm(ctx, s, null)));
     },
   },
@@ -141,13 +150,40 @@ export const staffRoutes = [
     method: 'POST', path: '/staff/:id/edit', handler(ctx) {
       const f = sf(ctx);
       run(`UPDATE staff SET emp_no=?, name=?, role=?, phone=?, ic_no=?, licence_class=?, licence_expiry=?,
-             address=?, salary=?, join_date=?, status=?, note=?, branch_id=? WHERE id=?`,
+             address=?, salary=?, annual_leave=?, join_date=?, status=?, note=?, branch_id=? WHERE id=?`,
         f.emp_no, f.name, f.role, f.phone, f.ic_no, f.licence_class, f.licence_expiry, f.address,
-        f.salary, f.join_date, f.status, f.note, f.branch_id, int(ctx.params.id));
-      // Kakitangan login mewarisi cawangan yang sama.
-      run('UPDATE users SET name = ?, branch_id = ? WHERE staff_id = ?', f.name, f.branch_id, int(ctx.params.id));
+        f.salary, f.annual_leave, f.join_date, f.status, f.note, f.branch_id, int(ctx.params.id));
+      upsertOtRates(int(ctx.params.id), f);
+      // Sinkronkan status login: staf yang 'leave' atau 'resigned' tidak boleh log masuk.
+      const userActive = f.status === 'active' ? 1 : 0;
+      run('UPDATE users SET name = ?, branch_id = ?, active = ? WHERE staff_id = ?',
+        f.name, f.branch_id, userActive, int(ctx.params.id));
       ctx.flashMsg(ctx.t('a.updated'));
       return { __redirect: `/staff/${int(ctx.params.id)}` };
+    },
+  },
+  {
+    method: 'POST', path: '/staff/:id/delete', role: ['admin'], handler(ctx) {
+      const id = int(ctx.params.id);
+      const s = get('SELECT * FROM staff WHERE id = ?', id);
+      if (!s) return { __redirect: '/staff' };
+      const refs = get(`SELECT
+          (SELECT COUNT(*) FROM users WHERE staff_id = ?) AS u,
+          (SELECT COUNT(*) FROM attendance WHERE staff_id = ?) AS a,
+          (SELECT COUNT(*) FROM trips WHERE driver_id = ?) AS t`, id, id, id);
+      if (!num(refs.u) && !num(refs.a) && !num(refs.t)) {
+        // Tiada rekod berkaitan - padam terus.
+        run('DELETE FROM staff_ot_rates WHERE staff_id = ?', id);
+        run('DELETE FROM staff WHERE id = ?', id);
+        ctx.flashMsg(`${ctx.t('stf.deleted')}: ${s.name}`);
+      } else {
+        // Ada sejarah (kehadiran/perjalanan/login) - tanda resigned sahaja
+        // supaya rekod lama tidak putus rujukan.
+        run(`UPDATE staff SET status = 'resigned' WHERE id = ?`, id);
+        run('UPDATE users SET active = 0 WHERE staff_id = ?', id);
+        ctx.flashMsg(`${ctx.t('stf.softDeleted')}: ${s.name}`);
+      }
+      return { __redirect: '/staff' };
     },
   },
   /* ---- login accounts ---- */
@@ -203,12 +239,23 @@ function sf(ctx) {
     phone: str(b.phone), ic_no: str(b.ic_no),
     licence_class: str(b.licence_class), licence_expiry: str(b.licence_expiry) || null,
     address: str(b.address), salary: num(b.salary, 0),
+    annual_leave: num(b.annual_leave, 0),
+    ot_normal: num(b.ot_normal, 0), ot_rest: num(b.ot_rest, 0), ot_ph: num(b.ot_ph, 0),
     join_date: str(b.join_date) || null,
     status: ['active', 'leave', 'resigned'].includes(str(b.status)) ? str(b.status) : 'active',
     note: str(b.note),
     // Cawangan wajib; default kepada cawangan admin yang sedang pilih.
     branch_id: getBranch(int(b.branch_id) || ctx.bv())?.id ?? null,
   };
+}
+/* Simpan kadar lembur staff (staff_ot_rates). Kadar 0 = auto daripada gaji
+ * dalam pengiraan payroll. */
+function upsertOtRates(staffId, f) {
+  run(`INSERT INTO staff_ot_rates (staff_id, normal_rate, rest_rate, ph_rate, updated_at)
+       VALUES (?,?,?,?,?)
+       ON CONFLICT(staff_id) DO UPDATE SET normal_rate=excluded.normal_rate,
+         rest_rate=excluded.rest_rate, ph_rate=excluded.ph_rate, updated_at=excluded.updated_at`,
+    staffId, f.ot_normal, f.ot_rest, f.ot_ph, new Date().toISOString());
 }
 function staffForm(ctx, s, err) {
   const { lang } = ctx;
@@ -251,6 +298,10 @@ function staffForm(ctx, s, err) {
       ${field({ label: T('stf.licenceClass'), name: 'licence_class', value: s.licence_class || '', placeholder: 'D / DA / G1 / G1A' })}
       ${field({ label: T('stf.licenceExpiry'), name: 'licence_expiry', type: 'date', value: s.licence_expiry || '' })}
       ${field({ label: T('stf.salary'), name: 'salary', type: 'number', step: '0.01', value: s.salary })}
+      ${field({ label: T('stf.annualLeave'), name: 'annual_leave', type: 'number', step: '1', value: s.annual_leave || '' })}
+      <div class="span-2 form-divider"><b>${T('stf.otRates')}</b></div>
+      ${field({ label: T('stf.otNormal'), name: 'ot_normal', type: 'number', step: '0.01', value: s.ot_normal || '', hint: T('stf.otHint') })}
+      ${field({ label: T('stf.otPh'), name: 'ot_ph', type: 'number', step: '0.01', value: s.ot_ph || '' })}
       ${field({ label: T('stf.joinDate'), name: 'join_date', type: 'date', value: s.join_date || '' })}
       ${field({ label: T('a.status'), name: 'status', value: s.status, options: ['active', 'leave', 'resigned'].map((r) => ({ value: r, label: T('stf.status.' + r) })) })}
       <label class="field span-2"><span class="field-label">${T('a.address')}</span><textarea name="address" rows="2">${esc(s.address || '')}</textarea></label>
@@ -307,6 +358,11 @@ function staffDetail(ctx, id) {
   const tot = get(`SELECT COUNT(*) AS n, COALESCE(SUM(t.delivered_m3),0) AS m3 FROM trips t
                    WHERE t.driver_id = ? AND t.status IN ('delivered','returned')`, id);
   const present = att.filter((a) => ['present', 'late'].includes(a.status)).length;
+  // Kadar lembur & baki cuti tahunan (cuti diambil dikira dari attendance tahun ini).
+  const otr = get('SELECT * FROM staff_ot_rates WHERE staff_id = ?', id);
+  const leaveUsed = num(get(`SELECT COUNT(*) AS n FROM attendance WHERE staff_id = ? AND status = 'leave' AND work_date LIKE ?`,
+    id, today().slice(0, 4) + '%')?.n);
+  const leaveEnt = num(s.annual_leave);
 
   const body = `
     ${card(`<div class="detail-head">
@@ -314,6 +370,8 @@ function staffDetail(ctx, id) {
         <div class="detail-sub">${T('stf.empNo')}: ${esc(s.emp_no || '—')}${s.join_date ? ` · ${T('stf.joinDate')}: ${fmtDate(s.join_date, lang)}` : ''}</div>
         <div class="detail-sub">${T('a.phone')}: ${s.phone ? `<a href="tel:${esc(s.phone)}">${esc(s.phone)}</a>` : '—'}</div>
         ${s.licence_class ? `<div class="detail-sub">${T('stf.licence')}: <b>${esc(s.licence_class)}</b>${s.licence_expiry ? ` (${fmtDate(s.licence_expiry, lang)})` : ''}</div>` : ''}
+        ${otr ? `<div class="detail-sub">${T('stf.otRates')}: <b class="green">B ${esc(money(otr.normal_rate || 'auto', lang))}</b> · P ${esc(money(otr.ph_rate || 'auto', lang))}/jam</div>` : ''}
+        ${leaveEnt > 0 ? `<div class="detail-sub">${T('stf.annualLeave')}: <b>${num(leaveEnt)}</b> hari · ${T('stf.leaveUsed')}: ${leaveUsed} · ${T('stf.leaveBal')}: <b>${Math.max(0, leaveEnt - leaveUsed)}</b></div>` : ''}
         ${s.address ? `<div class="detail-sub">${T('a.address')}: ${esc(s.address)}</div>` : ''}</div>
       <div class="detail-numbers">
         <div><span>${T('flt.trips')}</span><b>${num(tot.n)}</b></div>
@@ -325,6 +383,10 @@ function staffDetail(ctx, id) {
     <div class="actions-row">
       ${linkBtn(T('a.edit'), `/staff/${id}/edit`, { ic: 'edit' })}
       ${linkBtn(T('pay.payslip') + ' →', `/payroll?staff_id=${id}&month=${month}`, { ic: 'payroll' })}
+      ${ctx.user.role === 'admin' && s.user_id !== ctx.user.id
+        ? `<form method="post" action="/staff/${id}/delete" class="inline-form" onsubmit="return confirm('${T('stf.deleteConfirm')}')">
+            <button class="btn btn-danger-ghost sm" type="submit">${T('a.delete')}</button></form>`
+        : ''}
     </div>
     <div class="grid-2">
       ${card(cardHead(T('set.users')), s.user_id ? `
