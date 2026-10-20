@@ -19,6 +19,7 @@ import {
 import { getModule, isEnabled, tableName } from '../registry.js';
 import { get, all, run } from '../db.js';
 import { syncEventToGoogle } from '../gcal.js';
+import { sendGmail } from '../gmail.js';
 import { can } from '../auth.js';
 
 const PAGE_SIZE = 25;

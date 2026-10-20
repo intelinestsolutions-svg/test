@@ -23,7 +23,7 @@ const USERINFO_ENDPOINT = process.env.GOOGLE_USERINFO_ENDPOINT || 'https://openi
 
 // Identity + Calendar events so the connected user's Google account
 // receives appointments saved in this app automatically.
-const SCOPE = 'openid email profile https://www.googleapis.com/auth/calendar.events';
+const SCOPE = 'openid email profile https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/gmail.send';
 
 export const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 export const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
