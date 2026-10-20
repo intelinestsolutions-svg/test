@@ -1,116 +1,120 @@
-import { redirect, html, setCookie, str } from '../lib/http.js';
-import { get, run, verifyPassword, createSession, destroySession, setSetting } from '../db.js';
-import { esc, icon } from '../lib/html.js';
-import { LANGS } from '../i18n.js';
+/**
+ * Auth pages and endpoints: login, logout, profile.
+ */
+import { html, esc, redirect } from '../lib/http.js';
+import { layout } from '../lib/html.js';
+import { authenticate, changePassword, getUser } from '../auth.js';
+import { logAudit } from '../db.js';
 
-function loginPage(ctx, error = '', next = '') {
-  const { lang } = ctx;
-  const T = (k) => esc(ctx.t(k));
-  return `<!doctype html>
-<html lang="${lang}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${T('login.title')} · ${T('app.short')}</title>
-<link rel="icon" href="/favicon.svg">
-<link rel="stylesheet" href="/css/app.css">
-</head>
-<body class="login-body">
-<div class="login-wrap">
-  <div class="login-card">
-    <div class="login-brand">
-      <img class="login-logo" src="/img/kotamix-logo.png" alt="Kotamix Concrete">
-      <h1>${T('app.name')}</h1>
-      <p>${T('login.subtitle')}</p>
-    </div>
-    <div class="lang-tabs">
-      ${Object.entries(LANGS).map(([k, v]) => `<a class="${k === lang ? 'on' : ''}" href="/lang/${k}?next=${encodeURIComponent(ctx.fullUrl)}">${v.name}</a>`).join('')}
-    </div>
-    <form method="post" action="/login" class="login-form">
-      <input type="hidden" name="next" value="${esc(next)}">
-      ${error ? `<div class="flash err">${icon('warn', 16)}<span>${esc(error)}</span></div>` : ''}
-      <label class="field"><span class="field-label">${T('login.username')}</span>
-        <input name="username" autocomplete="username" autocapitalize="off" required autofocus></label>
-      <label class="field"><span class="field-label">${T('login.password')}</span>
-        <input name="password" type="password" autocomplete="current-password" required></label>
-      <button class="btn btn-primary btn-block" type="submit">${T('a.login')}</button>
-    </form>
-    <div class="login-demo">
-      <span>${lang === 'bm' ? 'Hubungi pentadbir untuk akaun.' : 'Contact the administrator for an account.'}</span>
-    </div>
-  </div>
-  <p class="login-foot">Concrete &amp; Lorry System · Sabah, Malaysia · © 2026 Kotamix Concrete<br>Dibangunkan oleh <b>Studio Pro</b></p>
-</div>
-</body>
-</html>`;
+function loginPage({ error = '', next = '' } = {}) {
+  return layout({
+    title: 'Sign in',
+    body: `
+    <div class="auth">
+      <h1>Studio Pro CRM</h1>
+      <p class="muted">Sign in to continue</p>
+      ${error ? `<div class="flash err">${esc(error)}</div>` : ''}
+      <form method="post" action="/login" class="card form">
+        <input type="hidden" name="next" value="${esc(next)}">
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" autocomplete="username" autofocus required>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <div class="actions"><button class="btn" type="submit">Sign in</button></div>
+      </form>
+    </div>`,
+  });
 }
 
 export const authRoutes = [
   {
-    method: 'GET', path: '/login', public: true,
-    handler(ctx) {
-      if (ctx.user) return redirect(ctx.res, '/dashboard');
-      return html(ctx.res, loginPage(ctx, '', ctx.query.next || ''));
+    method: 'GET',
+    path: '/login',
+    public: true,
+    handler: (ctx) => {
+      if (ctx.user) return { redirect: '/dashboard' };
+      return html(ctx.res, loginPage({ next: ctx.query.next || '' }));
     },
   },
   {
-    method: 'POST', path: '/login', public: true,
-    handler(ctx) {
-      const login = str(ctx.body.username).trim();
-      const password = str(ctx.body.password);
-      const next = str(ctx.body.next) || '/dashboard';
-      /* Kakitangan boleh suka masuk dengan NOMBOR PEKERJA (contoh PPR-S01)
-       * bersama kata laluan, bukan username yang terpisah.
-       *
-       * Nombor pekerja sudah tercetak pada slip gaji, nota penghantaran dan
-       * senarai kakitangan, jadi setiap orang tahu login dia sendiri -
-       * tiada username lain yang perlu dihafal. Username lama kekal berfungsi
-       * supaya admin dan akaun tanpa staff (contoh 'admin') tidak rosak. */
-      const u = get(`SELECT * FROM users
-                     WHERE active = 1
-                       AND (lower(username) = ?
-                            OR staff_id = (SELECT id FROM staff WHERE emp_no = ?))
-                     LIMIT 1`, login.toLowerCase(), login.toUpperCase());
-      if (!u || !verifyPassword(password, u.password_hash)) {
-        return html(ctx.res, loginPage(ctx, ctx.t('login.failed'), next), 401);
+    method: 'POST',
+    path: '/login',
+    public: true,
+    handler: (ctx) => {
+      const { username, password, next } = ctx.body;
+      const user = authenticate(username, password);
+      if (!user) {
+        return html(ctx.res, loginPage({
+          error: 'Invalid username or password',
+          next: next || '',
+        }), 401);
       }
-      const uLang = get('SELECT value FROM settings WHERE key = ?', `lang_${u.id}`)?.value;
-      // Kakitangan diletakkan terus dalam cawangan mereka; admin lihat semua.
-      // `next` hanya dipakai jika ia laluan dalam aplikasi sahaja.
-      const homeBranch = u.role === 'admin' ? null : (u.branch_id ?? null);
-      const token = createSession(u.id, homeBranch);
-      setCookie(ctx.res, 'token', token, { maxAge: 14 * 86400 });
-      if (uLang && uLang !== 'bm') setCookie(ctx.res, 'lang', uLang, { maxAge: 365 * 86400 });
-      run('UPDATE users SET last_login = ? WHERE id = ?', new Date().toISOString(), u.id);
-      return redirect(ctx.res, next.startsWith('/') ? next : '/dashboard');
+      ctx.setSession(user.id);
+      logAudit(user.id, 'auth.login', { username: user.username });
+      // Only allow same-site relative redirects.
+      const target = typeof next === 'string' && next.startsWith('/') && !next.startsWith('//')
+        ? next
+        : '/dashboard';
+      return { redirect: target };
     },
   },
   {
-    method: 'GET', path: '/logout', public: true,
-    handler(ctx) {
-      destroySession(ctx.cookies.token);
-      setCookie(ctx.res, 'token', '', { maxAge: 0 });
-      return redirect(ctx.res, '/login');
+    method: 'POST',
+    path: '/logout',
+    handler: (ctx) => {
+      if (ctx.user) logAudit(ctx.user.id, 'auth.logout', {});
+      ctx.clearSession();
+      return { redirect: '/login' };
     },
   },
   {
-    method: 'GET', path: '/lang/:code',
-    handler(ctx) {
-      const code = ctx.params.code === 'en' ? 'en' : 'bm';
-      setCookie(ctx.res, 'lang', code, { maxAge: 365 * 86400 });
-      if (ctx.user) setSetting(`lang_${ctx.user.id}`, code);
-      // Top-bar toggle carries no ?next=, so fall back to the referring page.
-      // Never redirect back to /lang/* itself (infinite loop).
-      let next = ctx.query.next || '';
-      if (!next.startsWith('/')) {
-        const ref = ctx.req?.headers?.referer || ctx.req?.headers?.referrer || '';
-        try {
-          const u = new URL(ref);
-          next = u.pathname + u.search;
-        } catch { next = '/dashboard'; }
+    method: 'GET',
+    path: '/profile',
+    handler: (ctx) => html(ctx.res, layout({
+      title: 'Profile',
+      user: ctx.user,
+      active: 'profile',
+      flash: ctx.flash,
+      body: `
+      <h1>Profile</h1>
+      <div class="card">
+        <dl class="kv">
+          <dt>Username</dt><dd>${esc(ctx.user.username)}</dd>
+          <dt>Name</dt><dd>${esc(ctx.user.name)}</dd>
+          <dt>Role</dt><dd>${esc(ctx.user.role)}</dd>
+        </dl>
+      </div>
+      <h2>Change password</h2>
+      <form method="post" action="/profile/password" class="card form">
+        <div class="field">
+          <label for="currentPassword">Current password</label>
+          <input id="currentPassword" name="currentPassword" type="password" autocomplete="current-password" required>
+        </div>
+        <div class="field">
+          <label for="newPassword">New password</label>
+          <input id="newPassword" name="newPassword" type="password" autocomplete="new-password" minlength="6" required>
+        </div>
+        <div class="actions"><button class="btn" type="submit">Change password</button></div>
+      </form>`,
+    })),
+  },
+  {
+    method: 'POST',
+    path: '/profile/password',
+    handler: (ctx) => {
+      const { currentPassword, newPassword } = ctx.body;
+      const result = changePassword(ctx.user.id, currentPassword, newPassword);
+      if (result.error) {
+        ctx.flashMsg(result.error, 'err');
+        return { redirect: '/profile' };
       }
-      if (!next.startsWith('/') || next.startsWith('/lang/')) next = '/dashboard';
-      return redirect(ctx.res, next);
+      // Changing the password clears all sessions - sign in again.
+      ctx.clearSession();
+      return { redirect: '/login' };
     },
   },
 ];

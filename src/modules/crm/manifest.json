@@ -1,0 +1,80 @@
+{
+  "id": "crm",
+  "name": "CRM",
+  "description": "Customers, leads, and deals pipeline.",
+  "icon": "🤝",
+  "version": "1.0.0",
+  "resources": [
+    {
+      "key": "customers",
+      "label": "Customers",
+      "singular": "Customer",
+      "fields": [
+        { "name": "name", "label": "Name / Company", "type": "text", "required": true },
+        { "name": "contact_person", "label": "Contact Person", "type": "text" },
+        { "name": "email", "label": "Email", "type": "text" },
+        { "name": "phone", "label": "Phone", "type": "text" },
+        { "name": "address", "label": "Address", "type": "textarea" },
+        {
+          "name": "tier",
+          "label": "Tier",
+          "type": "select",
+          "options": ["Lead", "Standard", "Premium", "VIP"],
+          "default": "Standard"
+        },
+        { "name": "notes", "label": "Notes", "type": "textarea" }
+      ]
+    },
+    {
+      "key": "leads",
+      "label": "Leads",
+      "singular": "Lead",
+      "fields": [
+        { "name": "name", "label": "Name", "type": "text", "required": true },
+        { "name": "company", "label": "Company", "type": "text" },
+        { "name": "email", "label": "Email", "type": "text" },
+        { "name": "phone", "label": "Phone", "type": "text" },
+        {
+          "name": "source",
+          "label": "Source",
+          "type": "select",
+          "options": ["Website", "Referral", "Walk-in", "Social Media", "Campaign", "Other"]
+        },
+        {
+          "name": "stage",
+          "label": "Stage",
+          "type": "select",
+          "options": ["New", "Contacted", "Qualified", "Proposal", "Won", "Lost"],
+          "default": "New"
+        },
+        { "name": "estimated_value", "label": "Estimated Value", "type": "money" },
+        { "name": "notes", "label": "Notes", "type": "textarea" }
+      ]
+    },
+    {
+      "key": "deals",
+      "label": "Deals",
+      "singular": "Deal",
+      "fields": [
+        { "name": "title", "label": "Title", "type": "text", "required": true },
+        {
+          "name": "customer",
+          "label": "Customer",
+          "type": "select",
+          "options_source": { "module": "crm", "resource": "customers", "field": "name" }
+        },
+        { "name": "value", "label": "Value", "type": "money" },
+        {
+          "name": "stage",
+          "label": "Stage",
+          "type": "select",
+          "options": ["Prospecting", "Negotiation", "Contract", "Won", "Lost"],
+          "default": "Prospecting"
+        },
+        { "name": "expected_close", "label": "Expected Close", "type": "date" },
+        { "name": "owner", "label": "Owner", "type": "text" },
+        { "name": "notes", "label": "Notes", "type": "textarea" }
+      ]
+    }
+  ]
+}

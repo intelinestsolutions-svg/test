@@ -1,23 +1,10 @@
-# Pangkalan data - jangan sekali-kali commit.
-# Setiap pemasangan membina datanya sendiri (lihat README).
+# The live database. Never commit this - it holds real business data and is
+# specific to one deployment. It is also never uploaded, so a deploy cannot
+# overwrite it.
 data/
-*.db
-*.db-shm
-*.db-wal
-*.sqlite
-*.sqlite3
 
+# Local scratch space and OS noise.
+tmp/
 node_modules/
-npm-debug.log*
 .DS_Store
-
-# Rahsia / konfigurasi setempat
-.env
-.env.*
-*.local
-config.local.*
-
-# Cap build - ditulis oleh workflow deploy sahaja. Ia juga mustahil
-# menjadi kebenaran tentang commit yang sedang berjalan, jadi ia
-# tidak sekali-kali boleh disimpan dalam git.
-build.json
+*.log

@@ -1,0 +1,83 @@
+{
+  "id": "accounting",
+  "name": "Accounting",
+  "description": "Chart of accounts, invoices, and payments.",
+  "icon": "📊",
+  "version": "1.0.0",
+  "resources": [
+    {
+      "key": "accounts",
+      "label": "Chart of Accounts",
+      "singular": "Account",
+      "fields": [
+        { "name": "code", "label": "Code", "type": "text", "required": true, "unique": true },
+        { "name": "name", "label": "Name", "type": "text", "required": true },
+        {
+          "name": "type",
+          "label": "Type",
+          "type": "select",
+          "options": ["Asset", "Liability", "Equity", "Income", "Expense"],
+          "required": true
+        },
+        { "name": "description", "label": "Description", "type": "textarea" }
+      ]
+    },
+    {
+      "key": "invoices",
+      "label": "Invoices",
+      "singular": "Invoice",
+      "fields": [
+        { "name": "number", "label": "Invoice No.", "type": "text", "required": true, "unique": true },
+        { "name": "customer", "label": "Customer", "type": "text", "required": true },
+        { "name": "issue_date", "label": "Issue Date", "type": "date", "required": true },
+        { "name": "due_date", "label": "Due Date", "type": "date" },
+        { "name": "amount", "label": "Amount", "type": "money", "required": true },
+        { "name": "tax", "label": "Tax", "type": "money", "default": 0 },
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Draft", "Sent", "Paid", "Overdue", "Cancelled"],
+          "default": "Draft"
+        },
+        { "name": "notes", "label": "Notes", "type": "textarea" }
+      ]
+    },
+    {
+      "key": "payments",
+      "label": "Payments",
+      "singular": "Payment",
+      "fields": [
+        { "name": "date", "label": "Date", "type": "date", "required": true },
+        {
+          "name": "invoice_no",
+          "label": "Invoice No.",
+          "type": "select",
+          "options_source": { "module": "accounting", "resource": "invoices", "field": "number" }
+        },
+        {
+          "name": "direction",
+          "label": "Direction",
+          "type": "select",
+          "options": ["In", "Out"],
+          "required": true
+        },
+        {
+          "name": "account",
+          "label": "Account",
+          "type": "select",
+          "options_source": { "module": "accounting", "resource": "accounts", "field": "name" }
+        },
+        { "name": "amount", "label": "Amount", "type": "money", "required": true },
+        {
+          "name": "method",
+          "label": "Method",
+          "type": "select",
+          "options": ["Cash", "Bank Transfer", "Card", "Cheque", "Other"]
+        },
+        { "name": "reference", "label": "Reference", "type": "text" },
+        { "name": "notes", "label": "Notes", "type": "textarea" }
+      ]
+    }
+  ]
+}

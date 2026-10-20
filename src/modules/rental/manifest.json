@@ -1,0 +1,66 @@
+{
+  "id": "rental",
+  "name": "Rental",
+  "description": "Rentable assets, customers, and rental orders.",
+  "icon": "🚚",
+  "version": "1.0.0",
+  "resources": [
+    {
+      "key": "assets",
+      "label": "Assets",
+      "singular": "Asset",
+      "fields": [
+        { "name": "code", "label": "Asset Code", "type": "text", "required": true, "unique": true },
+        { "name": "name", "label": "Name", "type": "text", "required": true },
+        {
+          "name": "category",
+          "label": "Category",
+          "type": "select",
+          "options": ["Vehicle", "Equipment", "Property", "Device", "Other"]
+        },
+        { "name": "daily_rate", "label": "Daily Rate", "type": "money", "required": true },
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Available", "Rented", "Maintenance", "Retired"],
+          "default": "Available"
+        },
+        { "name": "notes", "label": "Notes", "type": "textarea" }
+      ]
+    },
+    {
+      "key": "rentals",
+      "label": "Rental Orders",
+      "singular": "Rental Order",
+      "fields": [
+        {
+          "name": "asset",
+          "label": "Asset",
+          "type": "select",
+          "required": true,
+          "options_source": { "module": "rental", "resource": "assets", "field": "name" }
+        },
+        {
+          "name": "customer",
+          "label": "Customer",
+          "type": "select",
+          "required": true,
+          "options_source": { "module": "crm", "resource": "customers", "field": "name" }
+        },
+        { "name": "start_date", "label": "Start Date", "type": "date", "required": true },
+        { "name": "end_date", "label": "End Date", "type": "date" },
+        { "name": "rate", "label": "Rate", "type": "money" },
+        { "name": "deposit", "label": "Deposit", "type": "money" },
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Reserved", "Active", "Returned", "Overdue", "Cancelled"],
+          "default": "Reserved"
+        },
+        { "name": "notes", "label": "Notes", "type": "textarea" }
+      ]
+    }
+  ]
+}

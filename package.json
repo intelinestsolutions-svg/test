@@ -1,21 +1,16 @@
 {
-  "name": "kotamix-concrete",
+  "name": "studio-pro-crm",
   "version": "1.0.0",
   "private": true,
-  "license": "UNLICENSED",
-  "description": "Concrete lorry operations system for Sabah - orders, deliveries, payments, staff, fleet, fuel and inventory",
+  "description": "Studio Pro CRM - dependency-free (node:http + node:sqlite)",
   "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js",
-    "seed": "node src/seed.js",
-    "reseed": "node src/reset.js --reseed --yes",
-    "reset": "node src/reset.js",
-    "backup": "node src/backup.js",
-    "smoke": "node scripts/smoke.mjs"
+    "dev": "node --watch server.js"
   },
   "engines": {
     "node": ">=22.5.0"
-  }
+  },
+  "dependencies": {}
 }

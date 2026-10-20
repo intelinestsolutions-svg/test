@@ -1,0 +1,85 @@
+{
+  "id": "hr",
+  "name": "Human Resources",
+  "description": "Employee directory, departments, and leave management.",
+  "icon": "👥",
+  "version": "1.0.0",
+  "resources": [
+    {
+      "key": "departments",
+      "label": "Departments",
+      "singular": "Department",
+      "fields": [
+        { "name": "name", "label": "Name", "type": "text", "required": true, "unique": true },
+        { "name": "code", "label": "Code", "type": "text" },
+        { "name": "manager", "label": "Manager", "type": "text" },
+        { "name": "description", "label": "Description", "type": "textarea" }
+      ]
+    },
+    {
+      "key": "employees",
+      "label": "Employees",
+      "singular": "Employee",
+      "fields": [
+        { "name": "employee_no", "label": "Employee No.", "type": "text", "required": true, "unique": true },
+        { "name": "name", "label": "Full Name", "type": "text", "required": true },
+        { "name": "email", "label": "Email", "type": "text" },
+        { "name": "phone", "label": "Phone", "type": "text" },
+        {
+          "name": "department",
+          "label": "Department",
+          "type": "select",
+          "options_source": { "module": "hr", "resource": "departments", "field": "name" }
+        },
+        { "name": "position", "label": "Position", "type": "text" },
+        {
+          "name": "employment_type",
+          "label": "Employment Type",
+          "type": "select",
+          "options": ["Full-time", "Part-time", "Contract", "Intern"]
+        },
+        { "name": "hire_date", "label": "Hire Date", "type": "date" },
+        { "name": "basic_salary", "label": "Basic Salary", "type": "money" },
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Active", "Probation", "Resigned", "Terminated"],
+          "default": "Active"
+        },
+        { "name": "notes", "label": "Notes", "type": "textarea" }
+      ]
+    },
+    {
+      "key": "leave_requests",
+      "label": "Leave Requests",
+      "singular": "Leave Request",
+      "fields": [
+        {
+          "name": "employee",
+          "label": "Employee",
+          "type": "select",
+          "required": true,
+          "options_source": { "module": "hr", "resource": "employees", "field": "name" }
+        },
+        {
+          "name": "leave_type",
+          "label": "Leave Type",
+          "type": "select",
+          "options": ["Annual", "Sick", "Unpaid", "Maternity", "Paternity", "Emergency"],
+          "required": true
+        },
+        { "name": "start_date", "label": "Start Date", "type": "date", "required": true },
+        { "name": "end_date", "label": "End Date", "type": "date", "required": true },
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Pending", "Approved", "Rejected", "Cancelled"],
+          "default": "Pending"
+        },
+        { "name": "reason", "label": "Reason", "type": "textarea" }
+      ]
+    }
+  ]
+}

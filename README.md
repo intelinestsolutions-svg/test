@@ -1,333 +1,131 @@
-# Kotamix Concrete — Concrete Lorry Operations System
+# Studio Pro CRM
 
-A web application for running a ready-mix concrete lorry business in Sabah: sales
-orders, delivery trips, cash/bank/online payments, fleet, fuel, inventory
-(materials + fuel + spare parts), staff, attendance and payroll.
-
-Runs in any modern browser on a phone, tablet or PC. **No external packages to
-install** — it uses only Node's built-in modules, so it will keep running years
-from now without dependency rot.
-
-Bilingual throughout: **Bahasa Malaysia / English**, switchable with the `BM | EN`
-button in the top bar. The language choice is remembered per user.
-
----
-
-## 1. Requirements
-
-- **Node.js 22.5 or newer** (uses the built-in `node:sqlite` module). Check with
-  `node -v`.
-- A modern browser.
-
-That is the whole list. There is nothing to `npm install`.
-
----
-
-## 2. Getting started
+A full CRM suite that runs on plain Node.js with **no dependencies and no build step**.
 
 ```bash
-cd ConcreteLorrySabah
-
-# The first run creates an empty database with a single admin
-# account (admin / admin123). Then start the server:
-npm start
+node server.js
 ```
 
-Open <http://localhost:3000> and sign in.
+Then open <http://localhost:3000> and sign in with `admin` / `admin123`.
 
-### Logins
+## Why it is built this way
 
-A fresh install ships with one admin account only:
+This app targets shared Node hosting that **cannot run `npm install` and cannot run a
+build step**. A normal Next.js/Express stack fails there: native modules such as
+`better-sqlite3` need a compiler, and `next build` needs a toolchain that the host
+does not provide.
 
-| Username | Password | Role   | What they can do |
-|----------|----------|--------|------------------|
-| `admin`  | `admin123`  | admin  | Everything, including settings, users, backup and restore |
+So the entire stack is built from Node's own standard library:
 
-> **Change the admin password before going live.** Sign in as `admin` →
-> **Settings → Users**.
+| Normally            | Here                                       |
+| ------------------- | ------------------------------------------ |
+| Express             | hand-rolled router on `node:http`          |
+| better-sqlite3      | `node:sqlite` (`DatabaseSync`)             |
+| bcryptjs            | `scrypt` from `node:crypto`                |
+| express-session     | a `sessions` table                        |
+| Next.js / React     | server-rendered HTML                       |
 
-For trying the app, `npm run seed` (CLI only) adds office and driver demo
-accounts (`office`/`office123`, `driver`/`driver123`, `driver2`, `driver3`).
+Nothing is compiled and nothing is downloaded. Deploying means copying files.
 
-### Configuration
+## Requirements
 
-Set via environment variables when starting the server:
+- **Node.js 22.5 or newer** — `node:sqlite` was added in 22.5. On older versions the
+  app will not start.
 
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `PORT` | `3000` | Port to listen on |
-| `HOST` | `0.0.0.0` | Bind address. `0.0.0.0` lets phones on the same Wi-Fi connect |
-| `CLS_DATA_DIR` | `./data` | Where the SQLite database file lives |
+## Configuration
+
+All optional. The defaults suit a standard deploy.
+
+| Variable         | Default            | Purpose                              |
+| ---------------- | ------------------ | ------------------------------------ |
+| `PORT`           | `3000`             | Port to listen on                    |
+| `HOST`           | `0.0.0.0`          | Interface to bind                    |
+| `CRM_DATA_DIR`   | `./data`           | Where `crm.db` is kept               |
+| `COOKIE_SECURE`  | off                | Set to `1` when serving over HTTPS   |
+
+## Modules
+
+Five modules ship with the app and are installed automatically on first boot:
+
+- **Human Resources** — departments, employees, leave requests
+- **Payroll** — salary structures, pay runs, payslips
+- **Accounting** — accounts, invoices, payments
+- **CRM** — customers, leads, deals
+- **Rental** — assets, rentals
+
+A module is **data, not code**. Each one is a `manifest.json` describing its resources
+and fields, and the generic CRUD engine serves all of them. To add a module, add a
+folder:
+
+```
+src/modules/<your-module>/manifest.json
+```
+
+Its tables are created the next time the app starts, and it appears under **Modules**
+ready to install. No routes to write.
+
+### Field types
+
+`text`, `textarea`, `select` (needs `options`), `date`, `number`, `money`, `bool`.
+
+Set `required: true` to make a field mandatory, and `default` to set a starting value.
+
+## Roles
+
+| Role      | Can do                                              |
+| --------- | --------------------------------------------------- |
+| `admin`   | Everything, plus users, audit log, module management |
+| `manager` | Create, edit and delete records                      |
+| `staff`   | Read only                                            |
+
+Access control is enforced on the server for every request, not just hidden in the UI.
+
+## Accounts
+
+Three accounts are created on first boot. **They are public knowledge — change the
+passwords immediately** under **Profile**, or from **Users** if you are an admin.
+
+| Username  | Password     | Role    |
+| --------- | ------------ | ------- |
+| `admin`   | `admin123`   | admin   |
+| `manager` | `manager123` | manager |
+| `staff`   | `staff123`   | staff   |
+
+## Data
+
+Everything lives in a single SQLite file at `CRM_DATA_DIR/crm.db`. Back that file up
+and you have backed up the whole system.
+
+The app initialises itself on boot: tables are created if missing and the default
+accounts are added **only when the users table is empty**. Restarting never duplicates
+data, and never overwrites what is already there.
+
+## Deploying
+
+1. Copy the project to the server (FTP, git, or a file manager).
+2. Do **not** copy `data/` — it holds the live database. Leave an existing one alone.
+3. Make sure Node 22.5+ is selected for the application.
+4. Set the startup file to `server.js` and restart.
+
+The app answers every response with an `X-App-Build` header, so you can confirm which
+version is actually running:
 
 ```bash
-PORT=8080 npm start                      # different port
-HOST=127.0.0.1 npm start                 # this machine only
+curl -sI https://your-host/ | grep -i x-app-build
 ```
 
-**Using it on a phone:** run `npm start` on a computer, then browse to
-`http://<that-computer's-LAN-IP>:3000` (e.g. `http://192.168.1.50:3000`).
-Find the IP with `ipconfig getifaddr en0` on macOS or `hostname -I` on Linux.
-Both the computer and phone must be on the same network.
+If that shows an old value, the process has not restarted yet — old code keeps being
+served until it does.
 
----
-
-## 3. The daily workflow
-
-This is the intended order of operations. Steps 1–4 are done in the office,
-steps 5–7 by the driver in the yard.
-
-### 1. Take the order — `/orders`
-
-`New Order` captures the customer, site, mix design, volume in m³ and the price.
-The system:
-
-- suggests how many lorries and trips the volume needs (from the selected
-  lorries' capacities);
-- prices the mix from the mix design, or uses your own rate;
-- adds the delivery charge, discount and SST;
-- shows a live-running total as you type.
-
-Orders move `Draft → Confirmed` via the **Confirm** button on the order page.
-After that the order's status follows its own trips automatically — `Loading`,
-`Dispatched`, `Delivered` — and when every trip has returned it completes
-itself. An order can be voided at any time via **Void**. `Order No` is generated
-automatically, e.g. `SO-2026-0001`.
-
-### 2. Plan the delivery — `/schedule`
-
-A day view of every trip. Assign a lorry and a driver to each planned trip.
-Stock is **not** consumed here — only when concrete is actually loaded.
-
-### 3. Load and deliver — `/deliveries`
-
-Each trip advances through a fixed chain by tapping the action on the trip card:
-
-```
-planned → loading → dispatched → delivered → returned
-```
-
-Tap **Mark Loading** when the mixer is loaded. At that moment the system
-**automatically deducts the mix ingredients from stock** per the mix design
-(cement, sand, aggregate, admixture) and the trips' m³ roll up into the order.
-If stock is short, the trip is refused and the shortages are listed — fix the
-stock level first.
-
-Also record the **leftover m³** returned from site. Leftovers are logged as
-waste; they are deliberately *not* put back into stock.
-
-Pump start / stop times are captured when available, and feed the driver
-performance report.
-
-### 4. Invoice — `/invoices`
-
-An invoice is generated for the order (or create one by hand). Amounts follow
-the order: volume × rate, plus delivery, less discount, plus SST. Partial
-payments are supported — the invoice shows the balance due.
-
-### 5. Collect the money — `/payments`
-
-Three methods, all supported together:
-
-| Method | How it works |
-|--------|--------------|
-| **Cash** | Recorded immediately. |
-| **Bank transfer** | Record the transfer, then **manually confirm** it once the bank shows the credit. |
-| **Online** | Generates a **PayLink** you send to the customer (`/invoices/:id/link`). The customer opens it on their phone, sees the amount, and pays via your gateway. You then mark the payment received. |
-
-Payments roll up onto the invoice, into the customer's account, and into
-`/receivables` (with an aging view: Current / 1–30 / 31–60 / 60+ days).
-
-### 6. Stock and fuel — `/inventory`, `/fuel`
-
-Inventory covers all three categories you asked for:
-
-- **Material** — cement, sand, aggregate, admixture
-- **Fuel** — diesel
-- **Spare parts** — tyres, filters, etc.
-
-Every change is a **stock movement** with a reason, so you always have an audit
-trail of what came in and went out. Stock is deducted automatically on loading;
-you can also do manual `Stock In` / `Stock Out` and `Adjust` (e.g. for stock
-takes). Items at or below their minimum level are highlighted as **Low** and
-show up on the dashboard.
-
-`/fuel` logs diesel per lorry with odometer, litres, cost and the resulting
-**RM per m³** delivered, which is the number that tells you if a job is worth
-doing.
-
-### 7. People — `/staff`, `/attendance`, `/payroll`
-
-Record attendance per day (or mark the whole month in one go), including
-overtime hours in two categories — **OT Biasa** (1.5×) and **OT Cuti Umum**
-(3.0×). Each staff member has an annual leave allowance and, optionally, fixed
-per-hour OT rates (leave them 0 to auto-calculate from the monthly salary:
-salary ÷ 26 ÷ 8 × the OT multiple).
-
-The payroll sheet for a month calculates: days worked, trips, m³ delivered,
-trip allowance, attendance allowance and overtime — with gross, employee
-statutory deductions (SOCSO 0.5%, EIS 0.2%, EPF 11%) and net pay. EPF is
-calculated automatically from the current KWSP schedule (employer 13% for
-salaries ≤ RM5,000, 12% above); SOCSO/EIS wage ceilings default to the statutory
-RM 6,000 and stay adjustable in Settings. The payslip also shows the **employer
-share** (EPF/SOCSO/EIS), which is a company cost, not a deduction. Paid pages,
-excel/CVS export and per-person payslips all print.
-
----
-
-## 4. Printing
-
-Every printable document has a print-optimised page with a **Print** button
-(choose A4 or A5 — the delivery notes are laid out A5 2-up, so one sheet of A4
-yields two slips).
-
-| Document | URL |
-|----------|-----|
-| Delivery Note (original + driver copy) | `/print/dn/:tripId` |
-| Invoice | `/print/invoice/:invoiceId` |
-| Payment receipt | `/print/receipt/:paymentId` |
-| Customer statement | `/print/statement/:customerId` |
-| Sales order | `/print/order/:orderId` |
-| Purchase order | `/print/po/:poId` |
-| Payslip | `/print/payslip/:staffId?month=YYYY-MM` |
-
-**Printing tips**
-
-- In the print dialog set **Margins → None** and enable **Background graphics**,
-  otherwise the header colours and signature rules drop out.
-- Turn off headers and footers if the browser adds its own date/URL.
-- Delivery notes print 2 per A4 sheet by default; scale to 100%.
-- Amounts in words are printed on invoices and receipts in both languages.
-
----
-
-## 5. Reports — `/reports`
-
-Pick a tab and a date range; each one exports to CSV.
-
-- **Sales** — revenue, m³ and order count per day.
-- **Profit** — per mix design: revenue, material cost, fuel cost, gross margin %.
-- **Stock** — on-hand, minimum, unit cost and stock value per item.
-- **Fleet** — trips, m³, fuel cost and **cost per m³** per lorry.
-- **People** — trips, m³ and km per driver.
-
-Other useful views: `/receivables` (aging), `/payroll` (monthly cost), `/fuel`
-(fuel efficiency), `/dashboard` (today at a glance).
-
----
-
-## 6. Administration — `/settings`
-
-Tabs:
-
-- **Company** — name, address, phone, logo/letterhead details used on prints.
-- **Finance** — SST rate, default delivery charge, currency, invoice terms.
-- **Bank** — bank accounts shown on invoices for bank transfers.
-- **Allowances** — trip allowance, attendance allowance, overtime rates for payroll.
-- **Numbering** — prefixes for each document series (SO, INV, DN, PO, PAY…).
-- **Users** — add, deactivate, reset passwords, and issue driver logins.
-- **Data** — download a database backup, or restore the whole system from an
-  uploaded backup (a safety copy of the current data is made first).
-
----
-
-## 7. Backup and restore
+### Health check
 
 ```bash
-npm run backup      # writes data/backup-<timestamp>.db (a clean VACUUM INTO copy)
+curl -s -o /dev/null -w '%{http_code}\n' https://your-host/login
 ```
 
-**Back up from the UI too:** Settings → Data → *Download database backup*.
-This is the normal daily routine — the download works from any phone.
+`200` means the app is up. `503` means no process is listening — the app is not
+running, regardless of what the files look like.
 
-**Restore from the UI:** Settings → Data → *Restore Backup File* — upload a
-`.db` backup to replace all current data. A safety copy of the current database
-(`clsbiz.pre-restore-<timestamp>.db`) is taken automatically first, so a wrong
-restore is never destructive. Restart the application after restoring.
+## Licence
 
-> `data/` holds the entire business. Copy that folder to a USB stick or cloud
-> drive, or schedule `npm run backup`.
-
-Maintenance commands (CLI only, not shown in the UI):
-
-```bash
-npm run seed        # load demo data into an empty database
-npm run reseed      # wipe transactional data, then reload demo data
-npm run reset       # interactive maintenance reset; asks before deleting anything
-npm run smoke       # walk every page and report any that fail
-```
-
-`npm run reset` will ask for confirmation. It removes orders, trips, invoices,
-payments, stock movements and fuel logs but keeps your settings, users, staff,
-lorries, customers, suppliers, items and mix designs.
-
----
-
-## 8. Technical notes
-
-**Stack:** Node's built-in `node:http` and `node:sqlite` (`DatabaseSync`). There
-is no build step, no bundler, and **no npm dependencies** — `package.json` has
-an empty dependency list on purpose.
-
-```
-ConcreteLorrySabah/
-├── server.js            # HTTP server, routing table, auth gate, error handling
-├── src/
-│   ├── db.js            # schema (21 tables), migrations, settings, auth helpers
-│   ├── i18n.js          # bilingual dictionary (~570 keys)
-│   ├── seed.js          # demo data
-│   ├── reset.js         # maintenance reset
-│   ├── backup.js        # VACUUM INTO backup
-│   ├── lib/
-│   │   ├── http.js      # body/cookie parsing, responses, CSV, date helpers
-│   │   ├── html.js      # escaping, layout, and UI components
-│   │   └── biz.js       # shared business logic (see below)
-│   └── routes/          # 20 modules, one per area
-├── public/
-│   ├── css/app.css      # the whole stylesheet, including print rules
-│   └── js/app.js        # sidebar drawer, flashes, form helpers
-├── scripts/smoke.mjs    # route-walking test
-└── data/app.db          # your database (created on first run)
-```
-
-**Everything is computed in `src/lib/biz.js`** so numbers stay consistent no
-matter which screen you are on: `calcOrder` (all order money math),
-`suggestTrips`, `deductTripMaterials`, `syncOrderFromTrips`, `ensureInvoiceForOrder`,
-`recalcInvoice`, `agingBuckets`, `addFuel`, `payrollForMonth`, `dashboardKpis`.
-
-**Server-rendered HTML.** Pages are plain HTML strings assembled by a small
-tagged-template layer. `html` auto-escapes interpolations; `raw()` is the escape
-hatch for pre-built markup. Because output is a normal string, a page's
-appearance can be verified by curling it, and printing is just a stylesheet.
-
-**Document numbering** comes from a `counters` table via `nextNo(kind, prefix)`,
-which produces gap-free numbers per year and per series.
-
-**Security notes.** Passwords are hashed (scrypt) before storage. Sessions are
-opaque random tokens in an httpOnly cookie, stored server-side in `sessions`, so
-signing out genuinely invalidates the session. All user input is escaped on
-output. Because this is designed to run on an office LAN rather than the open
-internet, put it behind HTTPS (e.g. an nginx or Caddy reverse proxy with
-TLS) before exposing it to the internet.
-
-**Adding a page.** Add a route object (`{ method, path, handler(ctx) }`) to the
-relevant file in `src/routes/`, register the module in `server.js`, and — if you
-add new text — add matching keys to `src/i18n.js` in both `bm` and `en`.
-
-### Troubleshooting
-
-| Symptom | Fix |
-|---|---|
-| `Cannot find module 'node:sqlite'` | Node is older than 22.5. Upgrade Node. |
-| `EADDRINUSE` | Another process owns the port: `PORT=3001 npm start`. |
-| Phone cannot reach the server | Use the LAN IP, not `localhost`; make sure both are on the same Wi-Fi. |
-| A trip will not mark as *Loading* | Stock is short. The flash message names the items — buy or adjust them in `/inventory`. |
-| Print looks cramped | Set margins to *None* and enable background graphics. |
-| Forgot the admin password | Delete `data/app.db` and re-run `npm run seed` (loses data), or ask the DB admin to update `password_hash`. |
-
-### Before going live
-
-1. Change the admin password (a fresh install starts with one admin account).
-2. Update **Settings → Company** with your real details — they appear on every printed document.
-3. Set your SST rate, bank accounts and allowance rates.
-4. Enter your real lorries, staff, mix designs, items and customers (or reset and start fresh).
-5. Arrange a daily `npm run backup` (or a weekly tap of Settings → Data).
+Proprietary. © Studio Pro.

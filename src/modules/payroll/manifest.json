@@ -1,0 +1,77 @@
+{
+  "id": "payroll",
+  "name": "Payroll",
+  "description": "Salary structures, pay runs, and payslips.",
+  "icon": "💸",
+  "version": "1.0.0",
+  "dependencies": ["hr"],
+  "resources": [
+    {
+      "key": "salary_structures",
+      "label": "Salary Structures",
+      "singular": "Salary Structure",
+      "fields": [
+        {
+          "name": "employee",
+          "label": "Employee",
+          "type": "select",
+          "required": true,
+          "options_source": { "module": "hr", "resource": "employees", "field": "name" }
+        },
+        { "name": "basic", "label": "Basic", "type": "money", "required": true },
+        { "name": "allowances", "label": "Allowances", "type": "money", "default": 0 },
+        { "name": "deductions", "label": "Deductions", "type": "money", "default": 0 },
+        { "name": "effective_from", "label": "Effective From", "type": "date" },
+        { "name": "notes", "label": "Notes", "type": "textarea" }
+      ]
+    },
+    {
+      "key": "pay_runs",
+      "label": "Pay Runs",
+      "singular": "Pay Run",
+      "fields": [
+        { "name": "period", "label": "Period (e.g. 2026-10)", "type": "text", "required": true },
+        { "name": "run_date", "label": "Run Date", "type": "date" },
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Draft", "Processed", "Paid", "Cancelled"],
+          "default": "Draft"
+        },
+        { "name": "notes", "label": "Notes", "type": "textarea" }
+      ]
+    },
+    {
+      "key": "payslips",
+      "label": "Payslips",
+      "singular": "Payslip",
+      "fields": [
+        {
+          "name": "pay_run",
+          "label": "Pay Run",
+          "type": "select",
+          "options_source": { "module": "payroll", "resource": "pay_runs", "field": "period" }
+        },
+        {
+          "name": "employee",
+          "label": "Employee",
+          "type": "select",
+          "required": true,
+          "options_source": { "module": "hr", "resource": "employees", "field": "name" }
+        },
+        { "name": "basic", "label": "Basic", "type": "money", "required": true },
+        { "name": "allowances", "label": "Allowances", "type": "money", "default": 0 },
+        { "name": "deductions", "label": "Deductions", "type": "money", "default": 0 },
+        { "name": "net_pay", "label": "Net Pay", "type": "money" },
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Draft", "Final", "Paid"],
+          "default": "Draft"
+        }
+      ]
+    }
+  ]
+}

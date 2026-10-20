@@ -1,87 +1,64 @@
 /**
- * Kotamix Concrete - application server.
- * Zero external dependencies: node:http + node:sqlite.
+ * Studio Pro CRM - application server.
+ *
+ * Zero external dependencies: node:http + node:sqlite + node:crypto.
+ * There is no build step and nothing to `npm install`, so this runs on
+ * hosting that cannot compile native modules.
  */
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { join, extname, normalize } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { ROOT, APP_BUILD, userForToken, destroySession, allSettings, listBranches, getBranch, branchWhere, branchCond, branchVal, takeFlash, setFlash } from './src/db.js';
-import { parseCookies, parseBody, html, json, text, redirect, setCookie } from './src/lib/http.js';
-import { t } from './src/lib/html.js';
+import { ROOT, APP_BUILD, userForToken, destroySession, purgeExpiredSessions, createSession, getSetting, setSetting } from './src/db.js';
+import { parseCookies, parseBody, html, json, text, redirect, setCookie, clearCookie } from './src/lib/http.js';
+import { initSchema } from './src/schema.js';
+import { syncRegistry, installBundledModules } from './src/registry.js';
+import { can } from './src/auth.js';
 
 import { authRoutes } from './src/routes/auth.js';
-import { branchRoutes } from './src/routes/branches.js';
-import { dashboardRoutes } from './src/routes/dashboard.js';
-import { orderRoutes } from './src/routes/orders.js';
-import { deliveryRoutes } from './src/routes/deliveries.js';
-import { scheduleRoutes } from './src/routes/schedule.js';
-import { customerRoutes } from './src/routes/customers.js';
-import { fleetRoutes } from './src/routes/fleet.js';
-import { fuelRoutes } from './src/routes/fuel.js';
-import { inventoryRoutes } from './src/routes/inventory.js';
-import { mixRoutes } from './src/routes/mix.js';
-import { purchasingRoutes } from './src/routes/purchasing.js';
-import { staffRoutes } from './src/routes/staff.js';
-import { attendanceRoutes } from './src/routes/attendance.js';
-import { payrollRoutes } from './src/routes/payroll.js';
-import { invoiceRoutes } from './src/routes/invoices.js';
-import { paymentRoutes } from './src/routes/payments.js';
-import { receivableRoutes } from './src/routes/receivables.js';
-import { reportRoutes } from './src/routes/reports.js';
-import { settingsRoutes } from './src/routes/settings.js';
-import { printRoutes } from './src/routes/print.js';
-import { portalRoutes } from './src/routes/portal.js';
+import { pageRoutes } from './src/routes/pages.js';
+import { moduleRoutes } from './src/routes/modules.js';
+import { adminRoutes } from './src/routes/admin.js';
 
 const PORT = Number(process.env.PORT || 3000);
+// Bind all interfaces: managed hosting puts a reverse proxy in front of the
+// app, and a loopback-only bind is unreachable from it (visitors see 503).
 const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC = join(ROOT, 'public');
+const COOKIE = 'crm.sid';
+// Secure cookies require HTTPS; enable in production.
+const SECURE_COOKIE = process.env.NODE_ENV === 'production' || process.env.COOKIE_SECURE === '1';
 
 const routes = [
   ...authRoutes,
-  ...branchRoutes,
-  ...dashboardRoutes,
-  ...orderRoutes,
-  ...deliveryRoutes,
-  ...scheduleRoutes,
-  ...customerRoutes,
-  ...fleetRoutes,
-  ...fuelRoutes,
-  ...inventoryRoutes,
-  ...mixRoutes,
-  ...purchasingRoutes,
-  ...staffRoutes,
-  ...attendanceRoutes,
-  ...payrollRoutes,
-  ...invoiceRoutes,
-  ...paymentRoutes,
-  ...receivableRoutes,
-  ...reportRoutes,
-  ...settingsRoutes,
-  ...printRoutes,
-  ...portalRoutes,
+  ...pageRoutes,
+  ...moduleRoutes,
+  ...adminRoutes,
 ];
 
-/* Tolak akses: simpan sebab dalam sesi, kemudian hantar ke papan pemuka.
- * Mesej mesti disimpan dalam sesi kerana ctx.flash hilang bersama
- * permintaan ini - tanpanya pengguna hanya akan nampak halaman biasa
- * tanpa sebarang sebab kenapa akses dinafikan. */
-function deny(res, token, message) {
-  setFlash(token, [{ msg: message, type: 'err' }]);
-  redirect(res, '/dashboard');
-}
+/* ---------------- first-run ---------------- */
+initSchema();
+syncRegistry();
+installBundledModules();
+purgeExpiredSessions();
 
 /* ---------------- static files ---------------- */
 const MIME = {
-  '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon',
-  '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
 };
+
 async function serveStatic(req, res, pathname) {
   let rel = decodeURIComponent(pathname);
   if (rel === '/') rel = '/index.html';
   const target = normalize(join(PUBLIC, rel));
+  // Reject anything that escapes public/ via ../ in the path.
   if (!target.startsWith(PUBLIC)) return false;
   try {
     const s = await stat(target);
@@ -90,24 +67,23 @@ async function serveStatic(req, res, pathname) {
     res.writeHead(200, {
       'Content-Type': MIME[extname(target)] || 'application/octet-stream',
       'Content-Length': body.length,
-      'Cache-Control': rel === '/js/app.js' || rel === '/css/app.css' ? 'no-cache' : 'public, max-age=3600',
+      'Cache-Control': extname(target) === '.css' ? 'no-cache' : 'public, max-age=3600',
     });
     res.end(body);
     return true;
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 /* ---------------- request handler ---------------- */
 const server = createServer(async (req, res) => {
-  // Nyatakan commit mana yang menjawab permintaan ini. Header ini
-  // ditetapkan sebelum apa-apa penulisan supaya ia sampai pada
-  // modul terbina dalam pun memuatkannya, bukan sahaja halaman dinamik.
+  // Reported before anything else so even static responses carry it - this is
+  // how a deploy proves which commit is answering.
   res.setHeader('X-App-Build', APP_BUILD);
-  // Header keselamatan asas - label MIME tegas + rujukan dalam tapak sahaja.
-  // (CSP tidak dipakai kerana halaman cetak dan portal perlu skrip gaya
-  // inline; nosniff + referrer cukup tanpa merosakkan paparan.)
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
+
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
   const cookies = parseCookies(req);
@@ -117,176 +93,158 @@ const server = createServer(async (req, res) => {
       if (await serveStatic(req, res, pathname)) return;
     }
 
-    // match route
+    // ---- route matching ----
     let matched = null;
-    let paramNames = null;
-    let matchResult = null;
+    let names = null;
+    let m = null;
     for (const r of routes) {
       if (r.method !== req.method) {
         if (!(r.method === 'GET' && req.method === 'HEAD')) continue;
       }
-      const names = [];
-      const pattern = r.path.replace(/:([A-Za-z_]+)/g, (_, n) => { names.push(n); return '([^/]+)'; });
-      const m = pathname.match(new RegExp(`^${pattern}$`));
-      if (m) { matched = r; paramNames = names; matchResult = m; break; }
+      const params = [];
+      const pattern = r.path.replace(/:([A-Za-z_]+)/g, (_, n) => {
+        params.push(n);
+        return '([^/]+)';
+      });
+      const hit = pathname.match(new RegExp(`^${pattern}$`));
+      if (hit) {
+        matched = r;
+        names = params;
+        m = hit;
+        break;
+      }
     }
+
+    const user = userForToken(cookies[COOKIE]);
+
     if (!matched) {
-      const u = userForToken(cookies.token);
-      if (u) {
+      if (user) {
         return html(res, `<!doctype html><meta charset="utf-8"><title>404</title>
           <body style="font-family:system-ui;padding:3rem;text-align:center">
-          <h1>404</h1><p>Halaman tidak dijumpai / Page not found</p>
-          <p><a href="/dashboard">Kembali ke papan pemuka / Back to dashboard</a></p></body>`, 404);
+          <h1>404</h1><p>Page not found</p>
+          <p><a href="/dashboard">Back to dashboard</a></p></body>`, 404);
       }
       return redirect(res, '/login');
     }
 
     const params = {};
-    paramNames.forEach((n, i) => { params[n] = decodeURIComponent(matchResult[i + 1] ?? ''); });
+    names.forEach((n, i) => {
+      params[n] = decodeURIComponent(m[i + 1] ?? '');
+    });
 
-    const user = userForToken(cookies.token);
     const body = ['POST', 'PUT', 'PATCH'].includes(req.method)
-      ? await parseBody(req, pathname === '/settings/restore' ? 100 * 1024 * 1024 : 3 * 1024 * 1024)
+      ? await parseBody(req)
       : {};
 
+    const flash = takeFlash(cookies);
     const ctx = {
-      req, res, user, params,
-      url: pathname, fullUrl: req.url, query: Object.fromEntries(url.searchParams),
-      cookies,
+      req, res, user, params, cookies,
+      path: pathname,
+      query: Object.fromEntries(url.searchParams),
       body,
-      lang: cookies.lang || (user?.lang || 'bm'),
-      settings: allSettings(),
-      // Mesej flash disimpan dalam sesi supaya ia kelihatan apabila route
-      // menyimpan dan redirect. Ia dibaca sekali sahaja (take-and-clear)
-      // supaya ia hilang selepas satu paparan.
-      flash: takeFlash(cookies.token),
-    };
-    ctx.t = (k) => t(ctx.lang, k);
-    ctx.flashMsg = (msg, type = 'ok') => ctx.flash.push({ msg, type });
-    ctx.hasRole = (...roles) => !!user && roles.includes(user.role);
-
-    // ---- kebenaran kewangan -------------------------------------------
-    // Peranan 'office' tidak automatik boleh urus kewangan. Admin
-    // memberikan kebenaran ini satu per satu (Tetapan → Pengguna).
-    // Admin sendiri sentiasa ya, kerana dia yang memberikannya.
-    ctx.canFinance = !!user && (user.role === 'admin' || user.can_finance === 1);
-
-    // ---- branch / cawangan -------------------------------------------
-    // Setiap pengguna terikat kepada satu cawangan (users.branch_id).
-    // - Admin: boleh lihat semua cawangan, dan memilih cawangan pada
-    //          dashboard (?branch=ID atau ?branch=all).
-    // - office / driver / staff lain: dikunci kepada cawangan sendiri.
-    //          Parameter ?branch= diabaikan sepenuhnya.
-    const isAdmin = !!user && user.role === 'admin';
-    const requested = url.searchParams.get('branch');
-    ctx.isAdmin = isAdmin;
-    ctx.branches = user ? listBranches() : [];
-
-    let branchId;
-    if (!user) {
-      branchId = null;
-    } else if (isAdmin) {
-      branchId = requested !== null ? requested : (user.branch_id ?? 'all');
-    } else {
-      // Kakitangan terkunci: abaikan sebarang percubaan bertukar cawangan.
-      branchId = user.branch_id ?? null;
-    }
-    // Sahkan cawangan wujud; jika tidak, kembali kepada 'all' (admin).
-    if (branchId !== 'all' && branchId !== null && branchId !== undefined && branchId !== '') {
-      branchId = getBranch(Number(branchId))
-        ? Number(branchId)
-        : (isAdmin ? 'all' : (user?.branch_id ?? null));
-    }
-    ctx.branchId = branchId === 'all' ? 'all' : (branchId ? Number(branchId) : null);
-    ctx.branchAll = ctx.branchId === 'all';
-    /** Adakah pengguna ini boleh melihat semua cawangan (admin sahaja). */
-    ctx.canSeeAllBranches = isAdmin;
-    /** Cawangan rumah pengguna - digunakan semasa menyimpan rekod baru. */
-    ctx.homeBranchId = user?.branch_id ?? null;
-    /** Penapis SQL ikut cawangan: { sql, params }. */
-    ctx.bw = (alias = '') => branchWhere(alias, ctx.branchId);
-    /**
-     * Klausa WHERE ikut cawangan untuk senarai yang sedang dibina.
-     * Guna: const bc = ctx.bcond('o'); if (bc) { where.push(bc.clause); args.push(...bc.params); }
-     */
-    ctx.bcond = (alias = '') => branchCond(alias, ctx.branchId);
-    /** Nilai branch_id untuk tulis ke pangkalan data. */
-    ctx.bv = () => branchVal(ctx.branchId);
-
-    // ---- pemandu: hanya lorry sendiri -------------------------------
-    // Setiap akaun pemandu terikat kepada satu baris staff (users.staff_id),
-    // dan baris itu yang memiliki trip-nya. Pemandu tidak boleh melintas
-    // ke lorry atau trip pemandu lain dalam cawangan yang sama.
-    ctx.isDriver = !!user && user.role === 'driver';
-    ctx.myStaffId = ctx.isDriver ? (user.staff_id ?? null) : null;
-    /** Adakah rekod ini milik pemandu yang sedang log masuk? */
-    ctx.isMyTrip = (trip) => ctx.isDriver
-      && !!ctx.myStaffId
-      && Number(trip?.driver_id) === Number(ctx.myStaffId);
-    /** Penapis SQL untuk "trip saya". */
-    ctx.myTripCond = (alias = 't') => (ctx.isDriver && ctx.myStaffId
-      ? { clause: `${alias}.driver_id = ?`, params: [ctx.myStaffId] }
-      : null);
-    /**
-     * Penapis SQL untuk "lori saya". Lori dan pemandu tiada lajur terus
-     * antara mereka - hubungan itu datang daripada trip. Pemandu yang belum
-     * pernah memandu tidak akan nampak lori langsung, yang lebih selamat
-     * daripada memaparkan lori orang lain.
-     */
-    ctx.myLorryCond = (alias = 'l') => {
-      if (!ctx.isDriver) return null;
-      if (!ctx.myStaffId) return { clause: '1=0', params: [] };
-      return {
-        clause: `${alias}.id = (SELECT lorry_id FROM trips WHERE driver_id = ? AND lorry_id IS NOT NULL ORDER BY id LIMIT 1)`,
-        params: [ctx.myStaffId],
-      };
+      flash,
+      flashMsg(msg, type = 'ok') {
+        flash.push({ msg, type });
+      },
+      setSession(userId) {
+        const token = createSession(userId);
+        setCookie(res, COOKIE, token, { maxAge: 30 * 24 * 3600, secure: SECURE_COOKIE });
+        return token;
+      },
+      clearSession() {
+        destroySession(cookies[COOKIE]);
+        clearCookie(res, COOKIE, { secure: SECURE_COOKIE });
+      },
+      saveFlash() {
+        if (!flash.length) return;
+        setFlash(cookies[COOKIE], flash);
+      },
     };
 
-    // auth gate
+    // ---- access control ----
     if (!matched.public) {
       if (!user) {
-        if (pathname.startsWith('/print/')) return redirect(res, '/login');
         return redirect(res, `/login?next=${encodeURIComponent(req.url)}`);
       }
-      if (matched.role && !matched.role.includes(user.role)) {
-        // Jangan beritahu "login gagal" - pengguna memang log masuk, cuma
-        // peranan mereka tidak sesuai untuk halaman ini.
-        deny(res, cookies.token, t(ctx.lang, matched.role.includes('office') ? 'err.noAccessRole' : 'err.noAccess'));
-        return undefined;
+      if (matched.roles && !matched.roles.includes(user.role)) {
+        ctx.flashMsg('You do not have access to that page.', 'err');
+        ctx.saveFlash();
+        return redirect(res, '/dashboard');
       }
-      // Kewangan (invois, bayaran, belum terima) memerlukan kebenaran
-      // khas daripada admin - peranan 'office' sahaja tidak mencukupi.
-      if (matched.finance && !ctx.canFinance) {
-        deny(res, cookies.token, t(ctx.lang, 'err.noFinance'));
-        return undefined;
+      if (matched.module) {
+        const moduleId = params[matched.moduleParam];
+        if (!can(user, moduleId, req.method === 'GET' ? 'read' : 'write')) {
+          ctx.flashMsg('You do not have access to that module.', 'err');
+          ctx.saveFlash();
+          return redirect(res, '/dashboard');
+        }
       }
     }
 
     const result = await matched.handler(ctx);
     if (result === undefined) return; // handler already responded
-    if (result && result.__redirect) {
-      // Simpan flash dalam sesi - ctx.flash hilang bersama permintaan ini,
-      // jadi tanpanya mesej "Disimpan" tidak pernah kelihatan.
-      if (ctx.flash.length) setFlash(cookies.token, ctx.flash);
-      return redirect(res, result.__redirect);
+
+    if (result && result.redirect) {
+      ctx.saveFlash();
+      return redirect(res, result.redirect);
+    }
+    if (result && result.json) return json(res, result.json, result.status || 200);
+    if (result && result.error) {
+      ctx.flashMsg(result.error, 'err');
+      ctx.saveFlash();
+      return redirect(res, result.back || '/dashboard');
     }
   } catch (err) {
     console.error(`\n!! ${req.method} ${pathname}\n`, err);
     if (res.headersSent) return;
-    const u = userForToken(cookies.token);
+    const u = userForToken(cookies[COOKIE]);
     if (!u) return text(res, 'Internal error', 500);
-    // Jangan hantar stack trace ke pelayar - ia membocorkan struktur fail
-    // dalaman kepada pengguna yang log masuk. Log penuh kekal di pelayan.
+    // Never leak a stack trace to the browser; the full error stays in the log.
     return html(res, `<!doctype html><meta charset="utf-8"><title>Error</title>
       <body style="font-family:system-ui;padding:3rem">
-      <h1>Ralat / Error</h1><pre style="background:#f6f6f6;padding:1rem;border-radius:8px">${
+      <h1>Error</h1><pre style="background:#f6f6f6;padding:1rem;border-radius:8px">${
         String(err.message || 'Internal error').replace(/[<&]/g, (c) => (c === '<' ? '&lt;' : '&amp;'))
-      }</pre><p><a href="/dashboard">Kembali / Back</a></p></body>`, 500);
+      }</pre><p><a href="/dashboard">Back</a></p></body>`, 500);
   }
 });
 
+/* ---------------- flash helpers ---------------- */
+
+/**
+ * Flash messages ride in the settings table keyed by session token, because
+ * they must survive the redirect that follows a save.
+ */
+function takeFlash(cookies) {
+  const token = cookies[COOKIE];
+  if (!token) return [];
+  try {
+    const raw = getSetting(`flash:${token}`);
+    if (!raw) return [];
+    setSetting(`flash:${token}`, '');
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+function setFlash(token, messages) {
+  if (!token) return;
+  setSetting(`flash:${token}`, JSON.stringify(messages.slice(0, 5)));
+}
+
 server.listen(PORT, HOST, () => {
-  console.log(`\n  Kotamix Concrete`);
-  console.log(`  Running at  http://localhost:${PORT}`);
-  console.log(`  Sign in     admin / admin123\n`);
+  console.log('');
+  console.log('  Studio Pro CRM');
+  console.log(`  Build       ${APP_BUILD}`);
+  console.log(`  Listening   http://${HOST}:${PORT}`);
+  console.log('  First run   admin / admin123  (change this immediately)');
+  console.log('');
 });
+
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    console.log(`\n[${sig}] shutting down`);
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000);
+  });
+}
