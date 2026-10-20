@@ -1,0 +1,52 @@
+{
+  "id": "email",
+  "name": "Email",
+  "description": "Send and track emails to customers and staff.",
+  "icon": "✉️",
+  "version": "1.0.0",
+  "resources": [
+    {
+      "key": "messages",
+      "label": "Messages",
+      "singular": "Message",
+      "title_field": "subject",
+      "fields": [
+        {
+          "name": "subject",
+          "label": "Subject",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "to_email",
+          "label": "To",
+          "type": "email",
+          "required": true
+        },
+        {
+          "name": "cc",
+          "label": "CC",
+          "type": "text"
+        },
+        {
+          "name": "body",
+          "label": "Message",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Draft", "Sent", "Failed"],
+          "default": "Draft"
+        },
+        {
+          "name": "sent_at",
+          "label": "Sent At",
+          "type": "datetime"
+        }
+      ]
+    }
+  ]
+}
