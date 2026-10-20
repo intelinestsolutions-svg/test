@@ -16,9 +16,7 @@ export function layout({ title, user, body, flash = [], active = '' }) {
       </a>
       <a href="/dashboard" class="${active === 'dashboard' ? 'on' : ''}">Dashboard</a>
       <a href="/modules" class="${active === 'modules' ? 'on' : ''}">Modules</a>
-      ${user.isAdmin ? `<a href="/admin/users" class="${active === 'users' ? 'on' : ''}">Users</a>` : ''}
-      ${user.isAdmin ? `<a href="/admin/roles" class="${active === 'roles' ? 'on' : ''}">User types</a>` : ''}
-      ${user.isAdmin ? `<a href="/admin/audit" class="${active === 'audit' ? 'on' : ''}">Audit</a>` : ''}
+      ${user.isAdmin ? `<a href="/admin/users" class="${active === 'users' ? 'on' : ''}">Users &amp; User types</a>` : ''}
       <span class="spacer"></span>
       <span class="who">${esc(user.name)} <span class="role">${esc(user.role)}</span></span>
       <a href="/profile" class="${active === 'profile' ? 'on' : ''}">Profile</a>

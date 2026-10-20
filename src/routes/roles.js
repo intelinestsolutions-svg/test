@@ -50,6 +50,7 @@ export const roleRoutes = [
     path: '/admin/roles',
     roles: ['admin'],
     handler: (ctx) => {
+      return { redirect: '/admin/users#roles' };
       const roles = listRoles();
       const rows = roles.map((r) => `
         <tr>

@@ -302,8 +302,6 @@ export const moduleRoutes = [
     },
   },
 
-,
-
   {
     method: 'GET',
     path: '/m/:module/:resource/:id/edit',

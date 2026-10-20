@@ -126,6 +126,7 @@ const server = createServer(async (req, res) => {
     let names = null;
     let m = null;
     for (const r of routes) {
+      if (!r || typeof r.method !== 'string') continue;
       if (r.method !== req.method) {
         if (!(r.method === 'GET' && req.method === 'HEAD')) continue;
       }

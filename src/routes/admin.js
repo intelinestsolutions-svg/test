@@ -11,6 +11,7 @@ import {
 } from '../auth.js';
 import { registry, installModule, setModuleEnabled, uninstallModule, getModule } from '../registry.js';
 import { logAudit } from '../db.js';
+import { listRoles, getRole, createRole, updateRole, deleteRole, roleModuleAccess } from '../roles.js';
 import { issueToken, peekToken, consumeToken, pruneTokens } from '../tokens.js';
 import { sendMail, emailLayout, mailConfigured, mailStatus, baseUrl } from '../mailer.js';
 
