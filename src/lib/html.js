@@ -31,6 +31,8 @@ export function layout({ title, user, body, flash = [], active = '' }) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · SP Business Suite</title>
 <link rel="icon" type="image/png" href="/img/logo-ink.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32.png">
+<link rel="shortcut icon" href="/favicon.ico">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>

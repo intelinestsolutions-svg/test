@@ -266,6 +266,7 @@ export const setupRoutes = [
       run('UPDATE users SET setup_complete = 1 WHERE id = ?', ctx.user.id);
       logAudit(ctx.user.id, 'setup.complete', { roles: listRoles().length });
       ctx.flashMsg('User types are set. Invite your first user whenever you are ready.');
+      if (ctx.user) ctx.user.setupComplete = true;
       return { redirect: '/admin/users' };
     },
   },

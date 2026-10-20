@@ -59,7 +59,8 @@ function allowedBeforeSetup(pathname) {
     || pathname.startsWith('/img/')
     || pathname === '/app.css'
     || pathname.startsWith('/auth/google')
-    || pathname.startsWith('/invite/');
+    || pathname.startsWith('/invite/')
+    || pathname.startsWith('/m/');
 }
 
 /* ---------------- first-run ---------------- */
