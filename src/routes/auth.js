@@ -11,7 +11,7 @@ function loginPage({ error = '', next = '' } = {}) {
     title: 'Sign in',
     body: `
     <div class="auth">
-      <h1>Studio Pro CRM</h1>
+      <h1>SP Business Suite</h1>
       <p class="muted">Sign in to continue</p>
       ${error ? `<div class="flash err">${esc(error)}</div>` : ''}
       <form method="post" action="/login" class="card form">

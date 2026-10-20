@@ -26,7 +26,7 @@ export function layout({ title, user, body, flash = [], active = '' }) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title)} · Studio Pro CRM</title>
+<title>${esc(title)} · SP Business Suite</title>
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>

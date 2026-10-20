@@ -1,8 +1,8 @@
 {
-  "name": "studio-pro-crm",
+  "name": "sp-business-suite",
   "version": "1.0.0",
   "private": true,
-  "description": "Studio Pro CRM - dependency-free (node:http + node:sqlite)",
+  "description": "SP Business Suite - dependency-free (node:http + node:sqlite)",
   "type": "module",
   "main": "server.js",
   "scripts": {

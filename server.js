@@ -1,5 +1,5 @@
 /**
- * Studio Pro CRM - application server.
+ * SP Business Suite - application server.
  *
  * Zero external dependencies: node:http + node:sqlite + node:crypto.
  * There is no build step and nothing to `npm install`, so this runs on
@@ -234,7 +234,7 @@ function setFlash(token, messages) {
 
 server.listen(PORT, HOST, () => {
   console.log('');
-  console.log('  Studio Pro CRM');
+  console.log('  SP Business Suite');
   console.log(`  Build       ${APP_BUILD}`);
   console.log(`  Listening   http://${HOST}:${PORT}`);
   console.log('  First run   admin / admin123  (change this immediately)');

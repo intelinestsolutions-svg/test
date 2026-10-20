@@ -1,6 +1,7 @@
-# Studio Pro CRM
+# SP Business Suite
 
-A full CRM suite that runs on plain Node.js with **no dependencies and no build step**.
+HR, payroll, accounting, sales and rentals in one system — running on plain
+Node.js with **no dependencies and no build step**.
 
 ```bash
 node server.js
