@@ -5,6 +5,8 @@ import { html, esc, redirect } from '../lib/http.js';
 import { layout } from '../lib/html.js';
 import { authenticate, changePassword, getUser } from '../auth.js';
 import { logAudit } from '../db.js';
+import { googleProfileBlock, googleButton, googleSignInForm } from './account.js';
+import { googleConfigured } from '../google.js';
 
 function loginPage({ error = '', next = '' } = {}) {
   return layout({
@@ -27,6 +29,7 @@ function loginPage({ error = '', next = '' } = {}) {
         </div>
         <div class="actions"><button class="btn" type="submit">Sign in</button></div>
       </form>
+      ${googleConfigured() ? `<div class="or"><span>or</span></div>${googleSignInForm()}` : ''}
     </div>`,
   });
 }
@@ -87,8 +90,10 @@ export const authRoutes = [
           <dt>Username</dt><dd>${esc(ctx.user.username)}</dd>
           <dt>Name</dt><dd>${esc(ctx.user.name)}</dd>
           <dt>Role</dt><dd>${esc(ctx.user.role)}</dd>
+          <dt>Email</dt><dd>${ctx.user.email ? esc(ctx.user.email) : '<span class="muted">not set</span>'}</dd>
         </dl>
       </div>
+      ${googleProfileBlock(ctx.user)}
       <h2>Change password</h2>
       <form method="post" action="/profile/password" class="card form">
         <div class="field">

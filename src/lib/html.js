@@ -16,8 +16,9 @@ export function layout({ title, user, body, flash = [], active = '' }) {
       </a>
       <a href="/dashboard" class="${active === 'dashboard' ? 'on' : ''}">Dashboard</a>
       <a href="/modules" class="${active === 'modules' ? 'on' : ''}">Modules</a>
-      ${user.role === 'admin' ? `<a href="/admin/users" class="${active === 'users' ? 'on' : ''}">Users</a>` : ''}
-      ${user.role === 'admin' ? `<a href="/admin/audit" class="${active === 'audit' ? 'on' : ''}">Audit</a>` : ''}
+      ${user.isAdmin ? `<a href="/admin/users" class="${active === 'users' ? 'on' : ''}">Users</a>` : ''}
+      ${user.isAdmin ? `<a href="/admin/roles" class="${active === 'roles' ? 'on' : ''}">User types</a>` : ''}
+      ${user.isAdmin ? `<a href="/admin/audit" class="${active === 'audit' ? 'on' : ''}">Audit</a>` : ''}
       <span class="spacer"></span>
       <span class="who">${esc(user.name)} <span class="role">${esc(user.role)}</span></span>
       <a href="/profile" class="${active === 'profile' ? 'on' : ''}">Profile</a>
@@ -55,7 +56,7 @@ export function table({ columns, rows, empty = 'Nothing here yet.' }) {
 }
 
 /** Renders a form from a resource manifest. */
-export function form({ action, resource, values = {}, submit = 'Save', cancel = null }) {
+export function form({ action, resource, values = {}, submit = 'Save', cancel = null, relations = {} }) {
   const fields = resource.fields.map((f) => {
     const v = values[f.name];
     const val = v === null || v === undefined ? '' : String(v);
@@ -64,6 +65,17 @@ export function form({ action, resource, values = {}, submit = 'Save', cancel = 
     if (f.type === 'textarea') {
       return `<div class="field">${label}<textarea id="f_${esc(f.name)}" name="${esc(f.name)}" rows="3">${esc(val)}</textarea></div>`;
     }
+    if (f.type === 'relation') {
+      // Options come from the related table, so the list is always current.
+      const opts = (relations[f.name] || [])
+        .map((o) => `<option value="${o.id}"${String(o.id) === val ? ' selected' : ''}>${esc(o.label)}</option>`)
+        .join('');
+      const blank = f.required ? '' : `<option value=""${val === '' ? ' selected' : ''}></option>`;
+      const empty = opts
+        ? ''
+        : `<option value="">— no ${esc((f.label || f.name).toLowerCase())} records yet —</option>`;
+      return `<div class="field">${label}<select id="f_${esc(f.name)}" name="${esc(f.name)}">${blank}${empty}${opts}</select></div>`;
+    }
     if (f.type === 'select') {
       const opts = (f.options || [])
         .map((o) => `<option value="${esc(o)}"${val === o ? ' selected' : ''}>${esc(o)}</option>`)
@@ -71,11 +83,23 @@ export function form({ action, resource, values = {}, submit = 'Save', cancel = 
       const blank = f.required ? '' : `<option value=""${val === '' ? ' selected' : ''}></option>`;
       return `<div class="field">${label}<select id="f_${esc(f.name)}" name="${esc(f.name)}">${blank}${opts}</select></div>`;
     }
+    if (f.type === 'textarea') {
+      // A multi-line field deserves a real textarea; it was previously a
+      // one-line text box, which made notes awkward to write.
+      return `<div class="field">${label}<textarea id="f_${esc(f.name)}" name="${esc(f.name)}" rows="4">${esc(val)}</textarea></div>`;
+    }
     const type = f.type === 'money' || f.type === 'number' ? 'number'
       : f.type === 'date' ? 'date'
+      : f.type === 'time' ? 'time'
+      : f.type === 'datetime' ? 'datetime-local'
+      : f.type === 'email' ? 'email'
+      : f.type === 'url' ? 'url'
       : 'text';
     const step = f.type === 'money' ? ' step="0.01"' : '';
-    return `<div class="field">${label}<input id="f_${esc(f.name)}" type="${type}"${step} name="${esc(f.name)}" value="${esc(val)}"></div>`;
+    // <input type="datetime-local"> wants "2026-10-21T14:30"; we store a space
+    // so the value sorts as text. Convert for display only.
+    const shown = f.type === 'datetime' ? String(val || '').replace(' ', 'T') : val;
+    return `<div class="field">${label}<input id="f_${esc(f.name)}" type="${type}"${step} name="${esc(f.name)}" value="${esc(shown)}"></div>`;
   }).join('\n');
 
   return `<form method="post" action="${esc(action)}" class="card form">

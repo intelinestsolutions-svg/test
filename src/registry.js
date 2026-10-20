@@ -38,7 +38,13 @@ export function tableName(moduleId, resourceKey) {
 
 const SQL_TYPES = {
   text: 'TEXT', textarea: 'TEXT', select: 'TEXT', date: 'TEXT',
+  // A calendar needs a time of day, not just a date. Both are stored as text
+  // in ISO form, which sorts correctly and needs no conversion to display.
+  datetime: 'TEXT', time: 'TEXT', email: 'TEXT', url: 'TEXT',
   number: 'REAL', money: 'REAL', bool: 'INTEGER',
+  // A relation stores the target row's id. The column has to be INTEGER for
+  // that to mean anything, so it is never inferred from the value.
+  relation: 'INTEGER',
 };
 
 export function columnDDL(field) {

@@ -116,7 +116,8 @@ export function createSession(userId) {
 export function userForToken(token) {
   if (!token) return null;
   const row = get(
-    `SELECT u.id, u.username, u.name, u.role, u.active, u.lang
+    `SELECT u.id, u.username, u.name, u.role, u.active, u.lang, u.email,
+            u.must_set_password, u.setup_complete
        FROM sessions s
        JOIN users u ON u.id = s.user_id
       WHERE s.token = ? AND s.expires_at > datetime('now') AND u.active = 1`,

@@ -4,7 +4,9 @@
   "description": "Salary structures, pay runs, and payslips.",
   "icon": "💸",
   "version": "1.0.0",
-  "dependencies": ["hr"],
+  "dependencies": [
+    "hr"
+  ],
   "resources": [
     {
       "key": "salary_structures",
@@ -14,15 +16,42 @@
         {
           "name": "employee",
           "label": "Employee",
-          "type": "select",
+          "type": "relation",
           "required": true,
-          "options_source": { "module": "hr", "resource": "employees", "field": "name" }
+          "relation": {
+            "module": "hr",
+            "resource": "employees",
+            "label": "name"
+          }
         },
-        { "name": "basic", "label": "Basic", "type": "money", "required": true },
-        { "name": "allowances", "label": "Allowances", "type": "money", "default": 0 },
-        { "name": "deductions", "label": "Deductions", "type": "money", "default": 0 },
-        { "name": "effective_from", "label": "Effective From", "type": "date" },
-        { "name": "notes", "label": "Notes", "type": "textarea" }
+        {
+          "name": "basic",
+          "label": "Basic",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "allowances",
+          "label": "Allowances",
+          "type": "money",
+          "default": 0
+        },
+        {
+          "name": "deductions",
+          "label": "Deductions",
+          "type": "money",
+          "default": 0
+        },
+        {
+          "name": "effective_from",
+          "label": "Effective From",
+          "type": "date"
+        },
+        {
+          "name": "notes",
+          "label": "Notes",
+          "type": "textarea"
+        }
       ]
     },
     {
@@ -30,16 +59,34 @@
       "label": "Pay Runs",
       "singular": "Pay Run",
       "fields": [
-        { "name": "period", "label": "Period (e.g. 2026-10)", "type": "text", "required": true },
-        { "name": "run_date", "label": "Run Date", "type": "date" },
+        {
+          "name": "period",
+          "label": "Period (e.g. 2026-10)",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "run_date",
+          "label": "Run Date",
+          "type": "date"
+        },
         {
           "name": "status",
           "label": "Status",
           "type": "select",
-          "options": ["Draft", "Processed", "Paid", "Cancelled"],
+          "options": [
+            "Draft",
+            "Processed",
+            "Paid",
+            "Cancelled"
+          ],
           "default": "Draft"
         },
-        { "name": "notes", "label": "Notes", "type": "textarea" }
+        {
+          "name": "notes",
+          "label": "Notes",
+          "type": "textarea"
+        }
       ]
     },
     {
@@ -50,25 +97,56 @@
         {
           "name": "pay_run",
           "label": "Pay Run",
-          "type": "select",
-          "options_source": { "module": "payroll", "resource": "pay_runs", "field": "period" }
+          "type": "relation",
+          "relation": {
+            "module": "payroll",
+            "resource": "pay_runs",
+            "label": "period"
+          }
         },
         {
           "name": "employee",
           "label": "Employee",
-          "type": "select",
+          "type": "relation",
           "required": true,
-          "options_source": { "module": "hr", "resource": "employees", "field": "name" }
+          "relation": {
+            "module": "hr",
+            "resource": "employees",
+            "label": "name"
+          }
         },
-        { "name": "basic", "label": "Basic", "type": "money", "required": true },
-        { "name": "allowances", "label": "Allowances", "type": "money", "default": 0 },
-        { "name": "deductions", "label": "Deductions", "type": "money", "default": 0 },
-        { "name": "net_pay", "label": "Net Pay", "type": "money" },
+        {
+          "name": "basic",
+          "label": "Basic",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "allowances",
+          "label": "Allowances",
+          "type": "money",
+          "default": 0
+        },
+        {
+          "name": "deductions",
+          "label": "Deductions",
+          "type": "money",
+          "default": 0
+        },
+        {
+          "name": "net_pay",
+          "label": "Net Pay",
+          "type": "money"
+        },
         {
           "name": "status",
           "label": "Status",
           "type": "select",
-          "options": ["Draft", "Final", "Paid"],
+          "options": [
+            "Draft",
+            "Final",
+            "Paid"
+          ],
           "default": "Draft"
         }
       ]

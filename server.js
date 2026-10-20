@@ -15,11 +15,15 @@ import { parseCookies, parseBody, html, json, text, redirect, setCookie, clearCo
 import { initSchema } from './src/schema.js';
 import { syncRegistry, installBundledModules } from './src/registry.js';
 import { can } from './src/auth.js';
+import { isAdminRole } from './src/roles.js';
+import { seedRoleAccessDefaults } from './src/roles.js';
 
 import { authRoutes } from './src/routes/auth.js';
 import { pageRoutes } from './src/routes/pages.js';
 import { moduleRoutes } from './src/routes/modules.js';
 import { adminRoutes } from './src/routes/admin.js';
+import { accountAllRoutes } from './src/routes/account.js';
+import { roleRoutes, setupRoutes, needsSetup } from './src/routes/roles.js';
 
 const PORT = Number(process.env.PORT || 3000);
 // Bind all interfaces: managed hosting puts a reverse proxy in front of the
@@ -32,15 +36,39 @@ const SECURE_COOKIE = process.env.NODE_ENV === 'production' || process.env.COOKI
 
 const routes = [
   ...authRoutes,
+  ...accountAllRoutes,
+  ...setupRoutes,
   ...pageRoutes,
   ...moduleRoutes,
   ...adminRoutes,
+  ...roleRoutes,
 ];
+
+/**
+ * Paths that stay reachable while an administrator is being held at the setup
+ * step. Without this the redirect would loop: /setup itself, signing out, and
+ * the pages needed to define user types must all remain open.
+ */
+function allowedBeforeSetup(pathname) {
+  return pathname === '/setup'
+    || pathname.startsWith('/setup/')
+    || pathname.startsWith('/admin/roles')
+    || pathname === '/logout'
+    || pathname === '/profile'
+    || pathname === '/profile/password'
+    || pathname.startsWith('/img/')
+    || pathname === '/app.css'
+    || pathname.startsWith('/auth/google')
+    || pathname.startsWith('/invite/');
+}
 
 /* ---------------- first-run ---------------- */
 initSchema();
 syncRegistry();
 installBundledModules();
+// Modules must exist before role access can be seeded from them, so this runs
+// after installation rather than inside initSchema.
+seedRoleAccessDefaults();
 purgeExpiredSessions();
 
 /* ---------------- static files ---------------- */
@@ -115,7 +143,15 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    const user = userForToken(cookies[COOKIE]);
+    const rawUser = userForToken(cookies[COOKIE]);
+    // Decorate once here: whether the role may administer, and whether the
+    // first-run setup is done. Route checks then read these flags instead of
+    // comparing role strings, so custom user types work throughout.
+    const user = rawUser ? {
+      ...rawUser,
+      isAdmin: isAdminRole(rawUser.role),
+      setupComplete: Boolean(rawUser.setup_complete),
+    } : null;
 
     if (!matched) {
       if (user) {
@@ -166,7 +202,19 @@ const server = createServer(async (req, res) => {
       if (!user) {
         return redirect(res, `/login?next=${encodeURIComponent(req.url)}`);
       }
-      if (matched.roles && !matched.roles.includes(user.role)) {
+
+      // An administrator who has not defined their user types yet is sent to
+      // the setup step first, because inviting people needs those types to
+      // exist. Everything needed to complete setup stays reachable.
+      if (needsSetup(user) && !allowedBeforeSetup(pathname)) {
+        return redirect(res, '/setup');
+      }
+      // `roles: ADMIN` on a route means "any administrator type", which is why
+      // this checks the flag rather than the role string.
+      const roleAllowed = matched.roles && matched.roles.includes('admin')
+        ? user.isAdmin
+        : matched.roles?.includes(user.role);
+      if (matched.roles && !roleAllowed) {
         ctx.flashMsg('You do not have access to that page.', 'err');
         ctx.saveFlash();
         return redirect(res, '/dashboard');

@@ -10,16 +10,37 @@
       "label": "Chart of Accounts",
       "singular": "Account",
       "fields": [
-        { "name": "code", "label": "Code", "type": "text", "required": true, "unique": true },
-        { "name": "name", "label": "Name", "type": "text", "required": true },
+        {
+          "name": "code",
+          "label": "Code",
+          "type": "text",
+          "required": true,
+          "unique": true
+        },
+        {
+          "name": "name",
+          "label": "Name",
+          "type": "text",
+          "required": true
+        },
         {
           "name": "type",
           "label": "Type",
           "type": "select",
-          "options": ["Asset", "Liability", "Equity", "Income", "Expense"],
+          "options": [
+            "Asset",
+            "Liability",
+            "Equity",
+            "Income",
+            "Expense"
+          ],
           "required": true
         },
-        { "name": "description", "label": "Description", "type": "textarea" }
+        {
+          "name": "description",
+          "label": "Description",
+          "type": "textarea"
+        }
       ]
     },
     {
@@ -27,20 +48,60 @@
       "label": "Invoices",
       "singular": "Invoice",
       "fields": [
-        { "name": "number", "label": "Invoice No.", "type": "text", "required": true, "unique": true },
-        { "name": "customer", "label": "Customer", "type": "text", "required": true },
-        { "name": "issue_date", "label": "Issue Date", "type": "date", "required": true },
-        { "name": "due_date", "label": "Due Date", "type": "date" },
-        { "name": "amount", "label": "Amount", "type": "money", "required": true },
-        { "name": "tax", "label": "Tax", "type": "money", "default": 0 },
+        {
+          "name": "number",
+          "label": "Invoice No.",
+          "type": "text",
+          "required": true,
+          "unique": true
+        },
+        {
+          "name": "customer",
+          "label": "Customer",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "issue_date",
+          "label": "Issue Date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "name": "due_date",
+          "label": "Due Date",
+          "type": "date"
+        },
+        {
+          "name": "amount",
+          "label": "Amount",
+          "type": "money",
+          "required": true
+        },
+        {
+          "name": "tax",
+          "label": "Tax",
+          "type": "money",
+          "default": 0
+        },
         {
           "name": "status",
           "label": "Status",
           "type": "select",
-          "options": ["Draft", "Sent", "Paid", "Overdue", "Cancelled"],
+          "options": [
+            "Draft",
+            "Sent",
+            "Paid",
+            "Overdue",
+            "Cancelled"
+          ],
           "default": "Draft"
         },
-        { "name": "notes", "label": "Notes", "type": "textarea" }
+        {
+          "name": "notes",
+          "label": "Notes",
+          "type": "textarea"
+        }
       ]
     },
     {
@@ -48,35 +109,70 @@
       "label": "Payments",
       "singular": "Payment",
       "fields": [
-        { "name": "date", "label": "Date", "type": "date", "required": true },
+        {
+          "name": "date",
+          "label": "Date",
+          "type": "date",
+          "required": true
+        },
         {
           "name": "invoice_no",
           "label": "Invoice No.",
-          "type": "select",
-          "options_source": { "module": "accounting", "resource": "invoices", "field": "number" }
+          "type": "relation",
+          "relation": {
+            "module": "accounting",
+            "resource": "invoices",
+            "label": "number"
+          }
         },
         {
           "name": "direction",
           "label": "Direction",
           "type": "select",
-          "options": ["In", "Out"],
+          "options": [
+            "In",
+            "Out"
+          ],
           "required": true
         },
         {
           "name": "account",
           "label": "Account",
-          "type": "select",
-          "options_source": { "module": "accounting", "resource": "accounts", "field": "name" }
+          "type": "relation",
+          "relation": {
+            "module": "accounting",
+            "resource": "accounts",
+            "label": "name"
+          }
         },
-        { "name": "amount", "label": "Amount", "type": "money", "required": true },
+        {
+          "name": "amount",
+          "label": "Amount",
+          "type": "money",
+          "required": true
+        },
         {
           "name": "method",
           "label": "Method",
           "type": "select",
-          "options": ["Cash", "Bank Transfer", "Card", "Cheque", "Other"]
+          "options": [
+            "Cash",
+            "Bank Transfer",
+            "Card",
+            "Cheque",
+            "Other"
+          ]
         },
-        { "name": "reference", "label": "Reference", "type": "text" },
-        { "name": "notes", "label": "Notes", "type": "textarea" }
+        {
+          "name": "reference",
+          "label": "Reference",
+          "type": "text"
+        },
+        {
+          "name": "notes",
+          "label": "Notes",
+          "type": "textarea"
+        }
       ]
     }
   ]

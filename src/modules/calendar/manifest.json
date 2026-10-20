@@ -1,0 +1,107 @@
+{
+  "id": "calendar",
+  "name": "Calendar",
+  "description": "Events, appointments and shared scheduling.",
+  "icon": "📅",
+  "version": "1.0.0",
+  "resources": [
+    {
+      "key": "events",
+      "label": "Events",
+      "singular": "Event",
+      "fields": [
+        {
+          "name": "title",
+          "label": "Title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "name": "starts_at",
+          "label": "Starts",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "name": "ends_at",
+          "label": "Ends",
+          "type": "datetime"
+        },
+        {
+          "name": "all_day",
+          "label": "All day",
+          "type": "bool",
+          "default": 0
+        },
+        {
+          "name": "location",
+          "label": "Location",
+          "type": "text"
+        },
+        {
+          "name": "owner",
+          "label": "Owner",
+          "type": "relation",
+          "relation": {
+            "module": "hr",
+            "resource": "employees",
+            "label": "name"
+          }
+        },
+        {
+          "name": "customer",
+          "label": "Customer",
+          "type": "relation",
+          "relation": {
+            "module": "crm",
+            "resource": "customers",
+            "label": "name"
+          }
+        },
+        {
+          "name": "rental",
+          "label": "Related Rental",
+          "type": "relation",
+          "relation": {
+            "module": "rental",
+            "resource": "rentals",
+            "label": "id"
+          }
+        },
+        {
+          "name": "category",
+          "label": "Category",
+          "type": "select",
+          "options": [
+            "Meeting",
+            "Appointment",
+            "Viewing",
+            "Maintenance",
+            "Delivery",
+            "Collection",
+            "Holiday",
+            "Other"
+          ],
+          "default": "Meeting"
+        },
+        {
+          "name": "status",
+          "label": "Status",
+          "type": "select",
+          "options": [
+            "Tentative",
+            "Confirmed",
+            "Completed",
+            "Cancelled"
+          ],
+          "default": "Confirmed"
+        },
+        {
+          "name": "notes",
+          "label": "Notes",
+          "type": "textarea"
+        }
+      ]
+    }
+  ]
+}

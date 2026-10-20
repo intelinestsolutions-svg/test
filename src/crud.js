@@ -37,11 +37,52 @@ function coerce(field, value) {
       const n = Number(value);
       return Number.isFinite(n) ? n : INVALID;
     }
+    case 'relation': {
+      // Stored as the target row id, so it must be a whole number.
+      const n = Number(value);
+      return Number.isInteger(n) && n > 0 ? n : INVALID;
+    }
     case 'bool':
       return value === true || value === 'true' || value === 1 || value === '1' || value === 'on' ? 1 : 0;
+    case 'date':
+      // ISO calendar date only. Rejects "2026-13-45" and free text.
+      return /^\d{4}-\d{2}-\d{2}$/.test(String(value).trim()) ? String(value).trim() : INVALID;
+    case 'time':
+      // 24-hour clock, optionally with seconds, as an <input type="time"> sends.
+      return /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/.test(String(value).trim())
+        ? String(value).trim() : INVALID;
+    case 'datetime': {
+      // A date and a time in one value: "2026-10-21T14:30" from the form, or
+      // with seconds, or with a space instead of "T". Stored with a space so it
+      // compares and sorts as text.
+      const s = String(value).trim();
+      const m = /^(\d{4}-\d{2}-\d{2})[T ](([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)$/.exec(s);
+      return m ? `${m[1]} ${m[2]}` : INVALID;
+    }
     default:
       return String(value);
   }
+}
+
+/**
+ * Resolves a relation field to the table it points at.
+ * Returns null when the target module or resource cannot be found.
+ */
+export function relationTarget(field) {
+  const rel = field?.relation;
+  if (!rel?.module || !rel?.resource) return null;
+  const mod = getModule(rel.module);
+  if (!mod) return null;
+  const resource = mod.resources.find((r) => r.key === rel.resource);
+  if (!resource) return null;
+  return { mod, resource, table: tableName(rel.module, rel.resource) };
+}
+
+/** The field used to show a related record to a human. */
+export function relationLabelField(target) {
+  const wanted = target.relation?.label;
+  if (wanted && target.resource.fields.some((f) => f.name === wanted)) return wanted;
+  return target.resource.fields[0]?.name || 'id';
 }
 
 /**
@@ -66,6 +107,20 @@ function buildPayload(resource, body, { partial = false } = {}) {
         ? `${field.label || field.name} is required`
         : `${field.label || field.name} has an invalid value`);
       continue;
+    }
+    // A relation must point at a row that exists. Without this a deleted
+    // record leaves dangling ids that render as blank with no explanation.
+    if (field.type === 'relation' && value !== null) {
+      const target = relationTarget(field);
+      if (!target) {
+        errors.push(`${field.label || field.name} is misconfigured (unknown target)`);
+        continue;
+      }
+      const row = get(`SELECT id FROM "${target.table}" WHERE id = ?`, value);
+      if (!row) {
+        errors.push(`${field.label || field.name} refers to a record that does not exist`);
+        continue;
+      }
     }
     data[field.name] = value;
   }
@@ -142,6 +197,42 @@ export function listRecords(moduleId, resourceKey, query = {}) {
   );
   const total = get(`SELECT COUNT(*) AS c FROM "${table}" ${whereSql}`, ...params)?.c ?? 0;
   return { data: rows, total, limit, offset };
+}
+
+/**
+ * Every row of a related resource, as {id, label}.
+ *
+ * Used to fill a relation dropdown and, on read pages, to turn a stored id
+ * into something a human can recognise. Loaded in one query per relation
+ * rather than per row, so a 50-row list does not fire 50 queries.
+ */
+export function relationOptions(field) {
+  const target = relationTarget(field);
+  if (!target) return [];
+  const labelField = relationLabelField({ relation: field.relation, resource: target.resource });
+  try {
+    return all(
+      `SELECT id, "${labelField}" AS label FROM "${target.table}" ORDER BY "${labelField}" ASC`
+    ).map((r) => ({ id: r.id, label: r.label ?? `#${r.id}` }));
+  } catch {
+    return [];
+  }
+}
+
+/** All relation fields of a resource, as a name -> options lookup. */
+export function relationOptionMap(resource) {
+  const out = {};
+  for (const field of resource.fields) {
+    if (field.type === 'relation') out[field.name] = relationOptions(field);
+  }
+  return out;
+}
+
+/** The page path for a related row, so a value can be clicked through to it. */
+export function relationHref(field, id) {
+  const target = relationTarget(field);
+  if (!target || id === null || id === undefined) return null;
+  return `/m/${target.mod.id}/${target.resource.key}/${id}`;
 }
 
 export function getRecord(moduleId, resourceKey, id) {

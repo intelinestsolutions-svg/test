@@ -7,6 +7,7 @@ import { registry } from '../registry.js';
 import { listUsers, auditLog } from '../auth.js';
 import { get } from '../db.js';
 import { tableName } from '../registry.js';
+import { googlePrompt } from './account.js';
 
 export const pageRoutes = [
   {
@@ -39,7 +40,7 @@ export const pageRoutes = [
         </section>`;
       }).join('');
 
-      const stats = ctx.user.role === 'admin'
+      const stats = ctx.user.isAdmin
         ? `<div class="stats">
             <div class="stat"><span class="n">${listUsers().length}</span><span class="l">Users</span></div>
             <div class="stat"><span class="n">${mods.length}</span><span class="l">Active modules</span></div>
@@ -53,6 +54,7 @@ export const pageRoutes = [
         flash: ctx.flash,
         body: `
         ${pageHeader(`Welcome, ${ctx.user.name}`)}
+        ${googlePrompt(ctx.user)}
         ${stats}
         ${cards || '<p class="muted">No modules are installed.</p>'}`,
       }));
@@ -69,7 +71,7 @@ export const pageRoutes = [
           <td>${m.installed ? (m.enabled ? '<span class="pill on">enabled</span>' : '<span class="pill">disabled</span>') : '<span class="pill off">not installed</span>'}</td>
           <td>${m.resources.map((r) => `<a href="/m/${esc(m.id)}/${esc(r.key)}">${esc(r.label)}</a>`).join(' · ') || '<span class="muted">—</span>'}</td>
           <td class="right">
-            ${ctx.user.role === 'admin' ? `
+            ${ctx.user.isAdmin ? `
               ${m.installed
                 ? `<form method="post" action="/admin/modules/${esc(m.id)}/toggle" class="inline">
                      <input type="hidden" name="enabled" value="${m.enabled ? '0' : '1'}">
