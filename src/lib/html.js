@@ -10,6 +10,10 @@ export function layout({ title, user, body, flash = [], active = '' }) {
   const nav = user
     ? `
     <nav class="nav">
+      <a href="/dashboard" class="brand">
+        <img src="/img/logo-ink.png" alt="" width="26" height="28" class="brand-mark">
+        <span>SP Business Suite</span>
+      </a>
       <a href="/dashboard" class="${active === 'dashboard' ? 'on' : ''}">Dashboard</a>
       <a href="/modules" class="${active === 'modules' ? 'on' : ''}">Modules</a>
       ${user.role === 'admin' ? `<a href="/admin/users" class="${active === 'users' ? 'on' : ''}">Users</a>` : ''}
@@ -27,6 +31,7 @@ export function layout({ title, user, body, flash = [], active = '' }) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · SP Business Suite</title>
+<link rel="icon" type="image/png" href="/img/logo-ink.png">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>

@@ -11,6 +11,7 @@ function loginPage({ error = '', next = '' } = {}) {
     title: 'Sign in',
     body: `
     <div class="auth">
+      <img src="/img/logo-ink.png" alt="SP Business Suite" width="72" height="78" class="auth-logo">
       <h1>SP Business Suite</h1>
       <p class="muted">Sign in to continue</p>
       ${error ? `<div class="flash err">${esc(error)}</div>` : ''}

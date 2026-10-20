@@ -49,6 +49,12 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .
 .nav a { color: var(--ink); font-weight: 500; padding: .25rem 0; }
 .nav a.on { color: var(--brand); border-bottom: 2px solid var(--brand); }
 .nav .spacer { flex: 1; }
+.nav .brand {
+  display: inline-flex; align-items: center; gap: .5rem;
+  font-weight: 600; margin-right: .75rem;
+}
+.brand-mark { display: block; width: 26px; height: 28px; object-fit: contain; }
+.auth-logo { display: block; width: 72px; height: 78px; object-fit: contain; margin: 0 auto .75rem; }
 .nav .who { color: var(--muted); font-size: .85rem; }
 .nav .role {
   background: var(--bg); border: 1px solid var(--line);
